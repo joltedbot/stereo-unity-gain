@@ -1,0 +1,168 @@
+import { ComboBox, Button, GridBox, Switch } from "std-widgets.slint";
+import { Theme } from "../ui/theme.slint";
+
+
+export component Label inherits Text {
+    in-out property <string> label;
+    text: label;
+    font-size: Theme.label-size;
+    font-weight: Theme.text-weight-bold;
+    color: Theme.text-color;
+}
+
+export component LevelBox inherits Rectangle {
+    in property <string> value;
+    border-width: Theme.border-width;
+    border-radius: Theme.border-radius;
+    border-color: Theme.text-color;
+    background: Theme.level-box-background;
+    width: 350px;
+    height: 200px;
+
+    Text {
+        text: value;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: Theme.levelbox-label-size;
+        font-weight: Theme.text-weight-bold;
+        color: Theme.text-color;
+    }
+}
+
+export component DeviceSelector inherits Rectangle {
+    HorizontalLayout {
+        spacing: 10px;
+
+        selector := ComboBox {
+            model: ["Built In Speakers", "External Headphones", "Focusrite Scarlett 18i20 MKII"];
+            current-value: "Focusrite Scarlett 18i20 MKII";
+            height: Theme.combobox-height;
+            y: (parent.height / 2) - (self.height / 2);
+        }
+    }
+}
+
+export component ChannelSelector inherits Rectangle {
+    HorizontalLayout {
+        spacing: 10px;
+        selector := ComboBox {
+            y: (parent.height / 2) - (self.height / 2);
+            model: ["1", "2", "3", "4", "5", "6"];
+            current-value: "1";
+            height: Theme.combobox-height;
+            width: 100px;
+        }
+    }
+}
+
+export component Line inherits Rectangle {
+    in property <length> length;
+    background: Theme.text-color;
+    width: 100%;
+    height: 1px;
+    opacity: 50%;
+}
+
+export component ReferenceFrequency inherits Rectangle {
+    height: 160px;
+    width: 275px;
+    padding: 10px;
+
+    HorizontalLayout {
+        alignment: space-around;
+        height: 120px;
+        GridLayout {
+            spacing: 10px;
+            Row {
+                Text {
+                    colspan: 2;
+                    text: "Reference Tone";
+                    horizontal-alignment: center;
+                    font-size: Theme.heading-size;
+                    font-weight: Theme.text-weight-bold;
+                    color: Theme.text-color;
+                }
+            }
+
+            Row {
+                Rectangle {
+                    colspan: 2;
+                    background: Theme.text-color;
+                    height: 2px;
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Frequency:";
+                    font-size: Theme.label-size;
+                    font-weight: 900;
+                    color: Theme.text-color;
+                }
+
+                Text {
+                    text: "1000 Hz (1kHz)";
+                    font-size: Theme.label-size;
+                    color: Theme.text-color;
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Output Level:";
+                    font-size: Theme.label-size;
+                    font-weight: 900;
+                    color: Theme.text-color;
+                }
+
+                Text {
+                    text: "-12 dbfs";
+                    font-size: Theme.label-size;
+                    color: Theme.text-color;
+                }
+            }
+
+            Row {
+                Rectangle {
+                    colspan: 2;
+                    background: Theme.text-color;
+                    height: 2px;
+                }
+            }
+
+            Row {
+                Rectangle {
+                    colspan: 2;
+                    height: 10px;
+                }
+            }
+        }
+    }
+}
+
+export component StartButton inherits Rectangle {
+
+    property <bool> active: true;
+
+    states [
+        running when active: {
+            start_button.text: "Start";
+            start_button.primary: false;
+        }
+        stopped when !active: {
+            start_button.text: "Stop";
+            start_button.primary: true;
+        }
+    ]
+
+    HorizontalLayout {
+        alignment: space-around;
+        start_button := Button {
+            width: 100px;
+            text: "Start";
+            clicked => {
+                active = !active;
+            }
+        }
+    }
+}

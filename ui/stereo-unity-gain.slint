@@ -1,0 +1,108 @@
+import { HorizontalBox, Button, Switch } from "std-widgets.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label } from "../ui/components.slint";
+import { Theme } from "../ui/theme.slint";
+import { StartButton } from "components.slint";
+
+
+
+export component AppWindow inherits Window {
+    title: "Stereo Unity Gain";
+    min-width: Theme.window-width;
+    min-height: Theme.window-height;
+    default-font-size: Theme.text-size;
+    background: transparent;
+
+    Rectangle {
+        padding: 4px;
+        border-width: Theme.window-border-width;
+        background: Theme.window-background;
+        border-color: Theme.border-colour;
+        border-bottom-left-radius: Theme.border-radius;
+        border-bottom-right-radius: Theme.border-radius;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: start;
+            vertical-stretch: 0;
+
+            Rectangle {
+                background: Theme.header-background;
+                border-width: Theme.border-width;
+                border-color: Theme.border-colour;
+
+                VerticalLayout {
+                    spacing: 10px;
+                    padding: 10px;
+
+                    HorizontalLayout {
+
+                        Rectangle {
+                            width: 275px;
+                        }
+
+                        Label {
+                            width: 290px;
+                            label: "Left Channel";
+                        }
+
+                        Label {
+                            width: 275px;
+                            label: "Audio Device";
+                        }
+
+                        Label {
+                            label: "Right Channel";
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: space-around;
+
+                        Label {
+                            label: "Input:   ";
+                        }
+
+                        ChannelSelector { }
+
+                        DeviceSelector { }
+
+                        ChannelSelector { }
+                    }
+
+                    HorizontalLayout {
+                        alignment: space-around;
+
+                        Label {
+                            label: "Output:";
+                        }
+
+                        ChannelSelector { }
+
+                        DeviceSelector { }
+
+                        ChannelSelector { }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                padding: 30px;
+                alignment: space-between;
+                LevelBox {
+                    value: "-0.0";
+                }
+
+                VerticalLayout {
+                    alignment: start;
+                    ReferenceFrequency { }
+
+                    StartButton { }
+                }
+
+                LevelBox {
+                    value: "+0.0";
+                }
+            }
+        }
+    }
+}

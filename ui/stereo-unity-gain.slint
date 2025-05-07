@@ -1,5 +1,5 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label } from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label} from "../ui/components.slint";
 import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
@@ -11,6 +11,24 @@ export component AppWindow inherits Window {
     min-height: Theme.window-height;
     default-font-size: Theme.text-size;
     background: transparent;
+
+    in-out property <[string]> input_device_list;
+    in-out property <string> current_input_device;
+    in-out property <[string]> output_device_list;
+    in-out property <string> current_output_device;
+    callback selected_input_device(string);
+    callback selected_output_device(string);
+
+    in-out property <[string]> input_channel_list;
+    in-out property <string> left_current_input_channel;
+    in-out property <string> right_current_input_channel;
+    in-out property <[string]> output_channel_list;
+    in-out property <string> left_current_output_channel;
+    in-out property <string> right_current_output_channel;
+    callback left_selected_input_channel(string);
+    callback left_selected_output_channel(string);
+    callback right_selected_input_channel(string);
+    callback right_selected_output_channel(string);
 
     Rectangle {
         padding: 4px;
@@ -30,57 +48,102 @@ export component AppWindow inherits Window {
                 border-width: Theme.border-width;
                 border-color: Theme.border-colour;
 
-                VerticalLayout {
+                HorizontalLayout {
+                    alignment: center;
                     spacing: 10px;
-                    padding: 10px;
 
-                    HorizontalLayout {
+                    VerticalLayout {
+                        spacing: 10px;
+                        padding: 10px;
 
-                        Rectangle {
-                            width: 275px;
+                        Rectangle { }
+
+                        Label {
+                            horizontal-alignment: right;
+                            label: "Output:";
                         }
 
                         Label {
-                            width: 290px;
+                            horizontal-alignment: right;
+                            label: "Input:";
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        padding: 10px;
+
+                        Label {
                             label: "Left Channel";
                         }
 
+                        left_output_channel := ChannelSelector {
+                            channel_list: output_channel_list;
+                            current: left_current_output_channel;
+                            selected_channel(channel) => {
+                                root.left_selected_output_channel(channel);
+                            }
+                        }
+
+                        left_input_channel := ChannelSelector {
+                            channel_list: input_channel_list;
+                            current: left_current_input_channel;
+                            selected_channel(channel) => {
+                                root.left_selected_input_channel(channel);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        padding: 10px;
+
                         Label {
-                            width: 275px;
+                            horizontal-alignment: center;
                             label: "Audio Device";
                         }
+
+                        output_device := DeviceSelector {
+                            device_list: output_device_list;
+                            current: current_output_device;
+                            selected_device(device) => {
+                                root.selected_output_device(device);
+                            }
+                        }
+
+                        input_device := DeviceSelector {
+                            device_list: input_device_list;
+                            current: current_input_device;
+                            selected_device(device) => {
+                                root.selected_input_device(device);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        padding: 10px;
 
                         Label {
                             label: "Right Channel";
                         }
-                    }
 
-                    HorizontalLayout {
-                        alignment: space-around;
+                        right_output_channel := ChannelSelector {
+                            channel_list: output_channel_list;
+                            current: right_current_output_channel;
 
-                        Label {
-                            label: "Input:   ";
+                            selected_channel(channel) => {
+                                root.right_selected_output_channel(channel);
+                            }
                         }
 
-                        ChannelSelector { }
-
-                        DeviceSelector { }
-
-                        ChannelSelector { }
-                    }
-
-                    HorizontalLayout {
-                        alignment: space-around;
-
-                        Label {
-                            label: "Output:";
+                        right_input_channel := ChannelSelector {
+                            channel_list: input_channel_list;
+                            current: right_current_input_channel;
+                            selected_channel(channel) => {
+                                root.right_selected_input_channel(channel);
+                            }
                         }
-
-                        ChannelSelector { }
-
-                        DeviceSelector { }
-
-                        ChannelSelector { }
                     }
                 }
             }

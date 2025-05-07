@@ -12,8 +12,10 @@ build = "build.rs"
 strip = true
 
 [dependencies]
+cpal = "0.15.3"
 slint = "1.11.0"
 slint-build = "1.11.0"
+thiserror = "2.0.12"
 
 [build-dependencies]
 slint-build = "1.11.0"

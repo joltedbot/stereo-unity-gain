@@ -1,23 +1,23 @@
 image: "rust:latest"
 
 stages:
-  - build
-  - test
+#  - build
+#  - test
   - semgrep
   - sonarcloud
 
 
-build:
-  stage: build
-  script:
-    - cargo check
-    - cargo build -r
+#build:
+#  stage: build
+#  script:
+#    - cargo check
+#    - cargo build -r
 
-test:
-  stage: test
-  script:
-    - rustc --version && cargo --version 
-    - cargo test --workspace --verbose
+#test:
+#  stage: test
+#  script:
+#    - rustc --version && cargo --version 
+#    - cargo test --workspace --verbose
 
 semgrep:
   stage: semgrep

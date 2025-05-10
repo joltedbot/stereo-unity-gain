@@ -104,8 +104,13 @@ fn main() {
         }
     });
 
-    // Start the UI and enter the main program loop
+    // Set up the callback for the start stop button
+    //let start_button_devices_clone = devices_arc_mutex.clone();
+    ui.on_start_button_pressed(move |is_active| {
+        println!("Start button pressed. State is: {}", is_active);
+    });
 
+    // Start the UI and enter the main program loop
     ui.run().unwrap();
 }
 

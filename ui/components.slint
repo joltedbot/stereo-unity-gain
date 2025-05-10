@@ -2,6 +2,7 @@ import { ComboBox, Button, GridBox, Switch } from "std-widgets.slint";
 import { Theme } from "../ui/theme.slint";
 
 
+
 export component Label inherits Text {
     in-out property <string> label;
     text: label;
@@ -12,12 +13,17 @@ export component Label inherits Text {
 
 export component LevelBox inherits Rectangle {
     in property <string> value;
-    border-width: Theme.border-width;
-    border-radius: Theme.border-radius;
-    border-color: Theme.text-color;
-    background: Theme.level-box-background;
-    width: 350px;
-    height: 200px;
+
+    width: Theme.level-box-width;
+    height: Theme.level-box-height;
+
+    box-background := Rectangle {
+        background: Theme.level-box-background-start;
+        border-width: Theme.border-width;
+        border-radius: Theme.border-radius;
+        border-color: Theme.text-color;
+        opacity: 50%;
+    }
 
     Text {
         text: value;
@@ -26,6 +32,16 @@ export component LevelBox inherits Rectangle {
         font-size: Theme.levelbox-label-size;
         font-weight: Theme.text-weight-bold;
         color: Theme.text-color;
+
+        changed text => {
+            if (self.text.to-float() < -0.1) {
+                box-background.background = Theme.level-box-background-low;
+            } else if (self.text.to-float() > 0.1) {
+                box-background.background = Theme.level-box-background-high;
+            } else {
+                box-background.background = Theme.level-box-background-right;
+            }
+        }
     }
 }
 
@@ -162,26 +178,28 @@ export component ReferenceFrequency inherits Rectangle {
 
 export component StartButton inherits Rectangle {
 
-    property <bool> active: true;
+    property <bool> active: false;
+    callback tone_start_button_pressed(bool);
 
     states [
         running when active: {
-            start_button.text: "Start";
-            start_button.primary: false;
-        }
-        stopped when !active: {
             start_button.text: "Stop";
             start_button.primary: true;
+        }
+        stopped when !active: {
+            start_button.text: "Start";
+            start_button.primary: false;
         }
     ]
 
     HorizontalLayout {
         alignment: space-around;
         start_button := Button {
-            width: 100px;
-            text: "Start";
+            width: 120px;
+            height: 30px;
             clicked => {
                 active = !active;
+                tone_start_button_pressed(active)
             }
         }
     }

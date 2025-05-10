@@ -32,6 +32,11 @@ export component AppWindow inherits Window {
     callback selected_left_output_channel(string);
     callback selected_right_output_channel(string);
 
+    in-out property <string> left_level_box_value: "0.0";
+    in-out property <string> right_level_box_value: "0.0";
+
+    callback start_button_pressed(bool);
+
     Rectangle {
         padding: 4px;
         border-width: Theme.window-border-width;
@@ -154,19 +159,23 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 padding: 30px;
                 alignment: space-between;
-                LevelBox {
-                    value: "-0.0";
+                left_level_box := LevelBox {
+                    value: left_level_box_value;
                 }
 
                 VerticalLayout {
                     alignment: start;
                     ReferenceFrequency { }
 
-                    StartButton { }
+                    StartButton {
+                        tone_start_button_pressed(active) => {
+                            root.start_button_pressed(active);
+                        }
+                    }
                 }
 
-                LevelBox {
-                    value: "+0.0";
+                right_level_box := LevelBox {
+                    value: right_level_box_value;
                 }
             }
         }

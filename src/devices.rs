@@ -2,7 +2,6 @@ use crate::errors::LocalError;
 use cpal::traits::*;
 use cpal::{default_host, Device, Host};
 use slint::{ModelRc, SharedString, VecModel};
-
 use std::error::Error;
 
 slint::include_modules!();

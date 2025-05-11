@@ -177,17 +177,16 @@ export component ReferenceFrequency inherits Rectangle {
 }
 
 export component StartButton inherits Rectangle {
-
-    property <bool> active: false;
+    in-out property <bool> active: false;
     callback tone_start_button_pressed(bool);
 
     states [
         running when active: {
-            start_button.text: "Stop";
+            start_button.text: Theme.start_button_running;
             start_button.primary: true;
         }
         stopped when !active: {
-            start_button.text: "Start";
+            start_button.text: Theme.start_button_stopped;
             start_button.primary: false;
         }
     ]
@@ -199,7 +198,7 @@ export component StartButton inherits Rectangle {
             height: 30px;
             clicked => {
                 active = !active;
-                tone_start_button_pressed(active)
+                tone_start_button_pressed(active);
             }
         }
     }

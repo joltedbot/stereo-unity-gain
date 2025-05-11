@@ -28,6 +28,22 @@ impl Devices {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
+        let output_device = host
+            .output_devices()
+            .unwrap()
+            .find(|d| d.name().unwrap().contains("Teams"))
+            .unwrap();
+
+        let number_of_output_channels = output_device
+            .supported_output_configs()
+            .unwrap()
+            .last()
+            .ok_or("Could Not get channels")
+            .unwrap()
+            .channels();
+
+        println!("Number of output channels: {}", number_of_output_channels);
+
         let input_device = host
             .default_input_device()
             .ok_or(LocalError::NoDefaultInputDevice)?;

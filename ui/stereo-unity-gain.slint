@@ -4,7 +4,6 @@ import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
 
-
 export component AppWindow inherits Window {
     title: "Stereo Unity Gain";
     min-width: Theme.window-width;
@@ -36,6 +35,9 @@ export component AppWindow inherits Window {
     in-out property <string> right_level_box_value: "0.0";
 
     callback start_button_pressed(bool);
+    in-out property <string> start_button_text;
+    in-out property <bool> start_button_primary;
+    in-out property <bool> start_button_active;
 
     Rectangle {
         padding: 4px;
@@ -115,6 +117,7 @@ export component AppWindow inherits Window {
                             current: current_output_device;
                             selected_device(device) => {
                                 root.selected_output_device(self.current_index, device);
+                                start_button.active = false;
                             }
                         }
 
@@ -167,7 +170,8 @@ export component AppWindow inherits Window {
                     alignment: start;
                     ReferenceFrequency { }
 
-                    StartButton {
+                    start_button := StartButton {
+                        active: start_button_active;
                         tone_start_button_pressed(active) => {
                             root.start_button_pressed(active);
                         }

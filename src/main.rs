@@ -7,14 +7,18 @@ use crate::devices::{get_model_from_string_slice, Devices, DisplayData};
 use crate::errors::{handle_localerror, LocalError};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
-use slint::SharedString;
+use crossbeam_channel::Receiver;
+use slint::{SharedString, Weak};
 use std::process::exit;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 slint::include_modules!();
 
 const EXIT_CODE_ERROR: i32 = 1;
+const TARGET_OUTPUT_LEVEL: f32 = -12.0;
+const RMS_BUFFER_LENGTH: usize = 1440;
 
 fn main() {
     // Initialize the UI
@@ -218,9 +222,89 @@ fn main() {
         };
     });
 
-    // Start the UI and enter the main program loop
+    // Set up the level meter reading thread to update the UI
+    let ui_weak = ui.as_weak();
+    let level_meter_clone = level_meter_arc_mutex.clone();
 
+    // Get the meter reader from level meter
+    let meter_reader = {
+        let mut level_meter = level_meter_clone.lock().unwrap();
+        level_meter.get_meter_reader()
+    };
+
+    // Spawn a thread to monitor the levels and update the UI
+    update_level_meter_values_in_the_ui(ui_weak, meter_reader);
+
+    // Start the UI and enter the main program loop
     ui.run().unwrap();
+}
+
+fn update_level_meter_values_in_the_ui(
+    ui_weak: Weak<AppWindow>,
+    meter_reader: Receiver<(f32, f32)>,
+) {
+    let mut left_sample_buffer: Vec<f32> = Vec::new();
+    let mut right_sample_buffer: Vec<f32> = Vec::new();
+    let mut last_left_rms = 0.0;
+    let mut last_right_rms = 0.0;
+
+    thread::spawn(move || {
+        while let Ok((left_level, right_level)) = meter_reader.recv() {
+            if left_sample_buffer.len() >= RMS_BUFFER_LENGTH {
+                let left = calculate_rms(&mut left_sample_buffer);
+                let right = calculate_rms(&mut right_sample_buffer);
+                if last_left_rms != left || last_right_rms != right {
+                    last_left_rms = left;
+                    last_right_rms = right;
+
+                    let left_delta = left - TARGET_OUTPUT_LEVEL;
+                    let right_delta = right - TARGET_OUTPUT_LEVEL;
+
+                    // Format the values for display
+                    let left_formatted = {
+                        if left_delta > 0.1 {
+                            format!("+{:.1}", left_delta)
+                        } else {
+                            format!("{:.1}", left_delta)
+                        }
+                    };
+
+                    let right_formatted = {
+                        if right_delta > 0.1 {
+                            format!("+{:.1}", right_delta)
+                        } else {
+                            format!("{:.1}", right_delta)
+                        }
+                    };
+
+                    // Update UI safely on the main thread
+                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                        ui.set_left_level_box_value(SharedString::from(left_formatted));
+                        ui.set_right_level_box_value(SharedString::from(right_formatted));
+                    });
+                }
+                left_sample_buffer.pop();
+                right_sample_buffer.pop();
+            }
+
+            left_sample_buffer.insert(0, left_level);
+            right_sample_buffer.insert(0, right_level);
+        }
+        println!("Level Meter Thread Exited");
+    });
+}
+
+fn calculate_rms(samples: &mut Vec<f32>) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+
+    let sum_of_squares: f32 = samples.iter().map(|&sample| sample * sample).sum();
+    ((get_dbfs_from_rms((sum_of_squares / samples.len() as f32).sqrt()) * 10.00).floor()) / 10.0
+}
+
+fn get_dbfs_from_rms(sample: f32) -> f32 {
+    20.0 * (sample.abs().log10())
 }
 
 fn set_ui_device_data(ui: &AppWindow, devices: &Devices, display_data: &DisplayData) {

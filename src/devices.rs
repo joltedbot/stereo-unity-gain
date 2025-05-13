@@ -28,22 +28,6 @@ impl Devices {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
-        let output_device = host
-            .output_devices()
-            .unwrap()
-            .find(|d| d.name().unwrap().contains("Teams"))
-            .unwrap();
-
-        let number_of_output_channels = output_device
-            .supported_output_configs()
-            .unwrap()
-            .last()
-            .ok_or("Could Not get channels")
-            .unwrap()
-            .channels();
-
-        println!("Number of output channels: {}", number_of_output_channels);
-
         let input_device = host
             .default_input_device()
             .ok_or(LocalError::NoDefaultInputDevice)?;
@@ -142,19 +126,21 @@ impl Devices {
         );
     }
 
-    pub fn set_left_input_channel_on_ui_callback(&mut self, left_input_channel: String) {
+    pub fn set_input_channel_on_ui_callback(
+        &mut self,
+        left_input_channel: String,
+        right_input_channel: String,
+    ) {
         self.active_input_device.2 = left_input_channel;
-    }
-
-    pub fn set_right_input_channel_on_ui_callback(&mut self, right_input_channel: String) {
         self.active_input_device.3 = right_input_channel;
     }
 
-    pub fn set_left_output_channel_on_ui_callback(&mut self, left_output_channel: String) {
+    pub fn set_output_channel_on_ui_callback(
+        &mut self,
+        left_output_channel: String,
+        right_output_channel: String,
+    ) {
         self.active_output_device.2 = left_output_channel;
-    }
-
-    pub fn set_right_output_channel_on_ui_callback(&mut self, right_output_channel: String) {
         self.active_output_device.3 = right_output_channel;
     }
 

@@ -10,6 +10,9 @@ pub enum LocalError {
 
     #[error("No Default Output Audio Devices")]
     NoDefaultOutputDevice,
+
+    #[error("Error Initializing Level")]
+    MeterInitialization,
 }
 
 pub fn handle_localerror(local_error: LocalError, specific_error: String) {

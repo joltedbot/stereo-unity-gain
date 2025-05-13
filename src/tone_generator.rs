@@ -34,30 +34,12 @@ impl ToneGenerator {
         let mut right_channel_index = right_channel as usize;
         right_channel_index = right_channel_index.saturating_sub(1);
 
-        let mut phase: f32 = 0.0;
+        let phase: f32 = 0.0;
         let stream_config: StreamConfig = device.default_output_config()?.into();
         let sample_rate = stream_config.sample_rate.0;
         let seconds_per_sample = 1.0 / sample_rate as f32;
         let number_of_channels = stream_config.channels;
         let phase_increment = RADS_PER_CYCLE * TONE_FREQUENCY * seconds_per_sample;
-
-        let stream = device.build_output_stream(
-            &stream_config,
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                for channels in data.chunks_mut(number_of_channels as usize) {
-                    channels[left_channel_index] = phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
-                    channels[right_channel_index] = phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
-                    phase += phase_increment;
-                    if phase >= RADS_PER_CYCLE {
-                        phase = 0.0;
-                    }
-                }
-            },
-            stream_error_callback,
-            None,
-        )?;
-
-        stream.pause()?;
 
         let wave = SineWave {
             phase,
@@ -65,6 +47,25 @@ impl ToneGenerator {
             seconds_per_sample,
             phase_increment,
         };
+
+        let mut closure_wave = wave.clone();
+
+        let stream = device.build_output_stream(
+            &stream_config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                craete_output_stream(
+                    data,
+                    number_of_channels,
+                    left_channel_index,
+                    right_channel_index,
+                    &mut closure_wave,
+                )
+            },
+            stream_error_callback,
+            None,
+        )?;
+
+        stream.pause()?;
 
         Ok(Self {
             device,
@@ -80,13 +81,13 @@ impl ToneGenerator {
     pub fn start(&mut self) {
         self.stream
             .play()
-            .expect("Failed to start stream. Can not continue.");
+            .expect("Failed to start tone generator stream. Can not continue.");
     }
 
     pub fn stop(&mut self) {
         self.stream
             .pause()
-            .expect("Failed to stop stream. Can not continue.");
+            .expect("Failed to stop tone generator stream. Can not continue.");
     }
 
     pub fn change_device(
@@ -106,23 +107,56 @@ impl ToneGenerator {
         self.number_of_channels = self.stream_config.channels;
         self.wave.seconds_per_sample = 1.0 / self.wave.sample_rate as f32;
 
-        let number_of_channels = self.number_of_channels.clone();
+        let number_of_channels = self.number_of_channels;
         let mut wave = self.wave.clone();
-        let left_channel_index = self.left_channel_index.clone();
-        let right_channel_index = self.right_channel_index.clone();
+        let left_channel_index = self.left_channel_index;
+        let right_channel_index = self.right_channel_index;
 
         self.stream = self.device.build_output_stream(
             &self.stream_config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                for channels in data.chunks_mut(number_of_channels as usize) {
-                    channels[left_channel_index] = wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
-                    channels[right_channel_index] =
-                        wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
-                    wave.phase += wave.phase_increment;
-                    if wave.phase >= RADS_PER_CYCLE {
-                        wave.phase = 0.0;
-                    }
-                }
+                craete_output_stream(
+                    data,
+                    number_of_channels,
+                    left_channel_index,
+                    right_channel_index,
+                    &mut wave,
+                )
+            },
+            stream_error_callback,
+            None,
+        )?;
+
+        self.stop();
+
+        Ok(())
+    }
+
+    pub fn change_channel(
+        &mut self,
+        left_channel: u8,
+        right_channel: u8,
+    ) -> Result<(), Box<dyn Error>> {
+        self.stop();
+
+        self.left_channel_index = (left_channel - 1) as usize;
+        self.right_channel_index = right_channel.saturating_sub(1) as usize;
+
+        let number_of_channels = self.number_of_channels;
+        let mut wave = self.wave.clone();
+        let left_channel_index = self.left_channel_index;
+        let right_channel_index = self.right_channel_index;
+
+        self.stream = self.device.build_output_stream(
+            &self.stream_config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                craete_output_stream(
+                    data,
+                    number_of_channels,
+                    left_channel_index,
+                    right_channel_index,
+                    &mut wave,
+                )
             },
             stream_error_callback,
             None,
@@ -134,6 +168,23 @@ impl ToneGenerator {
     }
 }
 
+fn craete_output_stream(
+    data: &mut [f32],
+    number_of_channels: ChannelCount,
+    left_channel_index: usize,
+    right_channel_index: usize,
+    wave: &mut SineWave,
+) {
+    for channels in data.chunks_mut(number_of_channels as usize) {
+        channels[left_channel_index] = wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
+        channels[right_channel_index] = wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
+        wave.phase += wave.phase_increment;
+        if wave.phase >= RADS_PER_CYCLE {
+            wave.phase = 0.0;
+        }
+    }
+}
+
 fn stream_error_callback(err: StreamError) {
-    panic!("Stream error: {}", err);
+    panic!("Output Stream error: {}", err);
 }

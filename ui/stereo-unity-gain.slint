@@ -26,17 +26,13 @@ export component AppWindow inherits Window {
     in-out property <string> right_current_output_channel;
     in-out property <bool> right_input_enabled: true;
     in-out property <bool> right_output_enabled: true;
-    callback selected_left_input_channel(string);
-    callback selected_right_input_channel(string);
-    callback selected_left_output_channel(string);
-    callback selected_right_output_channel(string);
+    callback selected_input_channel(string, string);
+    callback selected_output_channel(string, string);
 
     in-out property <string> left_level_box_value: "0.0";
     in-out property <string> right_level_box_value: "0.0";
 
     callback start_button_pressed(bool);
-    in-out property <string> start_button_text;
-    in-out property <bool> start_button_primary;
     in-out property <bool> start_button_active;
 
     Rectangle {
@@ -90,7 +86,9 @@ export component AppWindow inherits Window {
                             channel_list: output_channel_list;
                             current: left_current_output_channel;
                             selected_channel(channel) => {
-                                root.selected_left_output_channel(channel);
+                                root.selected_output_channel(channel, right_output_channel.current);
+                                left_current_output_channel = channel;
+                                start_button.active = false;
                             }
                         }
 
@@ -98,7 +96,9 @@ export component AppWindow inherits Window {
                             channel_list: input_channel_list;
                             current: left_current_input_channel;
                             selected_channel(channel) => {
-                                root.selected_left_input_channel(channel);
+                                root.selected_input_channel(channel, right_input_channel.current);
+                                left_current_input_channel = channel;
+                                start_button.active = false;
                             }
                         }
                     }
@@ -126,6 +126,7 @@ export component AppWindow inherits Window {
                             current: current_input_device;
                             selected_device(device) => {
                                 root.selected_input_device(self.current_index, device);
+                                start_button.active = false;
                             }
                         }
                     }
@@ -143,7 +144,9 @@ export component AppWindow inherits Window {
                             current: right_current_output_channel;
                             enabled: right_output_enabled;
                             selected_channel(channel) => {
-                                root.selected_right_output_channel(channel);
+                                root.selected_output_channel(left_output_channel.current, channel);
+                                right_current_output_channel = channel;
+                                start_button.active = false;
                             }
                         }
 
@@ -152,7 +155,9 @@ export component AppWindow inherits Window {
                             current: right_current_input_channel;
                             enabled: right_input_enabled;
                             selected_channel(channel) => {
-                                root.selected_right_input_channel(channel);
+                                root.selected_input_channel(left_input_channel.current, channel);
+                                right_current_input_channel = channel;
+                                start_button.active = false;
                             }
                         }
                     }

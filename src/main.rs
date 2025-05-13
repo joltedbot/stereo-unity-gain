@@ -1,9 +1,11 @@
 mod devices;
 mod errors;
+mod level_meter;
 mod tone_generator;
 
 use crate::devices::{get_model_from_string_slice, Devices, DisplayData};
 use crate::errors::{handle_localerror, LocalError};
+use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
 use slint::SharedString;
 use std::process::exit;
@@ -13,8 +15,6 @@ use std::sync::{Arc, Mutex};
 slint::include_modules!();
 
 const EXIT_CODE_ERROR: i32 = 1;
-const START_BUTTON_MESSAGE_STARTED: &str = "Start";
-const START_BUTTON_MESSAGE_STOPPED: &str = "Stop";
 
 fn main() {
     // Initialize the UI
@@ -46,11 +46,32 @@ fn main() {
             }
         };
 
+    // Set up the level meter
+
+    let input_left_channel: u8 = devices.active_input_device.2.clone().parse().unwrap_or(1);
+    let input_right_channel: u8 = devices.active_input_device.3.clone().parse().unwrap_or(0);
+
+    let level_meter = match LevelMeter::new(
+        devices.input_device.clone(),
+        input_left_channel,
+        input_right_channel,
+    ) {
+        Ok(meter) => meter,
+        Err(error) => {
+            handle_localerror(LocalError::MeterInitialization, error.to_string());
+            exit(EXIT_CODE_ERROR);
+        }
+    };
+
     // Set up the callback functions for the device dropdown menus
     let devices_arc_mutex = Arc::new(Mutex::new(devices));
     let tone_generator_arc_mutex = Rc::new(Mutex::new(tone_generator));
+    let level_meter_arc_mutex = Rc::new(Mutex::new(level_meter));
 
+    // INPUT DEVICE CHANGE CALLBACK
     let input_devices_clone = devices_arc_mutex.clone();
+    let tone_generator_clone = tone_generator_arc_mutex.clone();
+    let level_meter_clone = level_meter_arc_mutex.clone();
     let input_ui_weak = ui.as_weak();
     ui.on_selected_input_device(move |index, device| {
         if let Ok(mut devices) = input_devices_clone.lock() {
@@ -70,11 +91,26 @@ fn main() {
                     devices.active_input_device.3.clone(),
                 ));
             }
+
+            if let Ok(mut tone_generator) = tone_generator_clone.lock() {
+                tone_generator.stop();
+            }
+
+            if let Ok(mut level_meter) = level_meter_clone.lock() {
+                let left_channel = devices.active_input_device.2.clone().parse().unwrap_or(1);
+                let right_channel = devices.active_input_device.3.clone().parse().unwrap_or(0);
+
+                level_meter
+                    .change_device(devices.input_device.clone(), left_channel, right_channel)
+                    .expect("Could Not Input Change Devices");
+            }
         }
     });
 
+    // OUTPUT DEVICE CHANGE CALLBACK
     let output_devices_clone = devices_arc_mutex.clone();
     let tone_generator_clone = tone_generator_arc_mutex.clone();
+    let level_meter_clone = level_meter_arc_mutex.clone();
     let output_ui_weak = ui.as_weak();
     ui.on_selected_output_device(move |index, device| {
         if let Ok(mut devices) = output_devices_clone.lock() {
@@ -95,66 +131,99 @@ fn main() {
                 ));
             }
 
+            if let Ok(mut level_meter) = level_meter_clone.lock() {
+                level_meter.stop();
+            }
+
             if let Ok(mut tone_generator) = tone_generator_clone.lock() {
                 let left_channel = devices.active_output_device.2.clone().parse().unwrap_or(1);
                 let right_channel = devices.active_output_device.3.clone().parse().unwrap_or(0);
 
                 tone_generator
                     .change_device(devices.output_device.clone(), left_channel, right_channel)
-                    .expect("Could Not Change Devices");
-
-                ui.set_start_button_text(SharedString::from(START_BUTTON_MESSAGE_STOPPED));
-                ui.set_start_button_primary(false);
+                    .expect("Could Not Change Output Devices");
             }
         }
     });
 
-    // Set up the callback functions for the channel dropdown menus
-    let left_output_devices_clone = devices_arc_mutex.clone();
-    ui.on_selected_left_output_channel(move |channel| {
-        if let Ok(mut devices) = left_output_devices_clone.lock() {
-            devices.set_left_output_channel_on_ui_callback(channel.to_string());
+    // OUTPUT CHANNEL CHANGE CALLBACK
+    let output_devices_clone = devices_arc_mutex.clone();
+    let tone_generator_clone = tone_generator_arc_mutex.clone();
+    let level_meter_clone = level_meter_arc_mutex.clone();
+    ui.on_selected_output_channel(move |left_channel, right_channel| {
+        if let Ok(mut devices) = output_devices_clone.lock() {
+            devices.set_output_channel_on_ui_callback(
+                left_channel.to_string(),
+                right_channel.to_string(),
+            );
+
+            if let Ok(mut level_meter) = level_meter_clone.lock() {
+                level_meter.stop();
+            }
+
+            if let Ok(mut tone_generator) = tone_generator_clone.lock() {
+                let left_channel = devices.active_output_device.2.clone().parse().unwrap_or(1);
+                let right_channel = devices.active_output_device.3.clone().parse().unwrap_or(0);
+
+                tone_generator
+                    .change_channel(left_channel, right_channel)
+                    .expect("Could Not Change Output Channel");
+            }
         }
     });
 
-    let right_output_devices_clone = devices_arc_mutex.clone();
-    ui.on_selected_right_output_channel(move |channel| {
-        if let Ok(mut devices) = right_output_devices_clone.lock() {
-            devices.set_right_output_channel_on_ui_callback(channel.to_string());
-        }
-    });
+    // INPUT CHANNEL CHANGE CALLBACK
+    let input_devices_clone = devices_arc_mutex.clone();
+    let level_meter_clone = level_meter_arc_mutex.clone();
+    let tone_generator_clone = tone_generator_arc_mutex.clone();
 
-    let left_input_devices_clone = devices_arc_mutex.clone();
-    ui.on_selected_left_input_channel(move |channel| {
-        if let Ok(mut devices) = left_input_devices_clone.lock() {
-            devices.set_left_input_channel_on_ui_callback(channel.to_string());
-        }
-    });
+    ui.on_selected_input_channel(move |left_channel, right_channel| {
+        if let Ok(mut devices) = input_devices_clone.lock() {
+            devices.set_input_channel_on_ui_callback(
+                left_channel.to_string(),
+                right_channel.to_string(),
+            );
 
-    let right_input_devices_clone = devices_arc_mutex.clone();
-    ui.on_selected_right_input_channel(move |channel| {
-        if let Ok(mut devices) = right_input_devices_clone.lock() {
-            devices.set_right_input_channel_on_ui_callback(channel.to_string());
+            if let Ok(mut tone_generator) = tone_generator_clone.lock() {
+                tone_generator.stop();
+            }
+
+            if let Ok(mut level_meter) = level_meter_clone.lock() {
+                let left_channel = devices.active_input_device.2.clone().parse().unwrap_or(1);
+                let right_channel = devices.active_input_device.3.clone().parse().unwrap_or(0);
+
+                level_meter
+                    .change_channel(left_channel, right_channel)
+                    .expect("Could Not Change Input Channel");
+            }
         }
     });
 
     // Set up the callback for the start stop button
     let tone_generator_clone = tone_generator_arc_mutex.clone();
-    let ui_weak = ui.as_weak();
+    let level_meter_clone = level_meter_arc_mutex.clone();
     ui.on_start_button_pressed(move |is_active| {
         if let Ok(mut tone_generator) = tone_generator_clone.lock() {
             match is_active {
                 true => tone_generator.start(),
                 false => tone_generator.stop(),
             }
-        }
+        };
+
+        if let Ok(mut level_meter) = level_meter_clone.lock() {
+            match is_active {
+                true => level_meter.start(),
+                false => level_meter.stop(),
+            }
+        };
     });
 
     // Start the UI and enter the main program loop
+
     ui.run().unwrap();
 }
 
-pub fn set_ui_device_data(ui: &AppWindow, devices: &Devices, display_data: &DisplayData) {
+fn set_ui_device_data(ui: &AppWindow, devices: &Devices, display_data: &DisplayData) {
     let input_device_model = get_model_from_string_slice(&display_data.input_device_list.0);
     ui.set_input_device_list(input_device_model);
 

@@ -164,9 +164,34 @@ export component AppWindow inherits Window {
                 }
             }
 
+            HorizontalBox {
+                padding: 10px;
+                alignment: space-around;
+
+                Label {
+                    text: "Left";
+                    width: left_level_box.width;
+                    horizontal-alignment: center;
+                    font-size: Theme.heading-size;
+                }
+
+                Label {
+                    text: "Delta From Reference Tone Level";
+                    horizontal-alignment: center;
+                    font-size: Theme.heading-size;
+                }
+
+                Label {
+                    text: "Right";
+                    width: left_level_box.width;
+                    horizontal-alignment: center;
+                    font-size: Theme.heading-size;
+                }
+            }
+
             HorizontalLayout {
-                padding: 30px;
-                alignment: space-between;
+                padding: 10px;
+                alignment: space-around;
                 left_level_box := LevelBox {
                     value: left_level_box_value;
                 }

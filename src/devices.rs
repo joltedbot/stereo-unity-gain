@@ -66,14 +66,6 @@ impl Devices {
         self.display_data.clone()
     }
 
-    pub fn get_current_input_device_data(&self) -> (i32, String, String, String) {
-        self.active_input_device.clone()
-    }
-
-    pub fn get_current_output_device_data(&self) -> (i32, String, String, String) {
-        self.active_input_device.clone()
-    }
-
     pub fn get_current_input_device_channels(&self) -> ModelRc<SharedString> {
         get_model_from_string_slice(
             self.display_data.input_device_list.1[self.active_input_device.0 as usize].as_slice(),

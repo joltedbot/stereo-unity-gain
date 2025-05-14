@@ -4,7 +4,7 @@ use std::error::Error;
 
 const TONE_FREQUENCY: f32 = 1000.0;
 const RADS_PER_CYCLE: f32 = 2.0 * std::f32::consts::PI;
-const DBFS_SAMPLE_ADJUSTMENT_FACTOR: f32 = 2.0;
+const DBFS_SAMPLE_ADJUSTMENT_FACTOR: f32 = 0.25118864; // I need to reduce it by -12 or 10.0_f32.powf(-12.0 / 20.0)
 
 #[derive(Clone)]
 struct SineWave {
@@ -176,8 +176,8 @@ fn craete_output_stream(
     wave: &mut SineWave,
 ) {
     for channels in data.chunks_mut(number_of_channels as usize) {
-        channels[left_channel_index] = wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
-        channels[right_channel_index] = wave.phase.sin() / DBFS_SAMPLE_ADJUSTMENT_FACTOR;
+        channels[left_channel_index] = wave.phase.sin() * DBFS_SAMPLE_ADJUSTMENT_FACTOR;
+        channels[right_channel_index] = wave.phase.sin() * DBFS_SAMPLE_ADJUSTMENT_FACTOR;
         wave.phase += wave.phase_increment;
         if wave.phase >= RADS_PER_CYCLE {
             wave.phase = 0.0;

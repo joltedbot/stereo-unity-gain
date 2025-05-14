@@ -15,8 +15,8 @@ pub struct LevelMeter {
     right_channel_index: usize,
     stream: Stream,
     stream_state: StreamState,
-    channel_consumer: Receiver<(f32, f32)>,
-    channel_producer: Sender<(f32, f32)>,
+    channel_consumer: Receiver<(Vec<f32>, Vec<f32>)>,
+    channel_producer: Sender<(Vec<f32>, Vec<f32>)>,
 }
 
 impl LevelMeter {
@@ -79,7 +79,7 @@ impl LevelMeter {
         self.stream_state = StreamState::Stopped;
     }
 
-    pub fn get_meter_reader(&mut self) -> Receiver<(f32, f32)> {
+    pub fn get_meter_reader(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
         self.channel_consumer.clone()
     }
 
@@ -134,7 +134,7 @@ fn get_input_stream_for_current_device(
     device: &Device,
     left_channel_index: usize,
     right_channel_index: usize,
-    producer: Sender<(f32, f32)>,
+    producer: Sender<(Vec<f32>, Vec<f32>)>,
 ) -> Result<Stream, Box<dyn Error>> {
     let stream_config: StreamConfig = device.default_input_config()?.into();
     let number_of_channels = stream_config.channels;
@@ -142,15 +142,20 @@ fn get_input_stream_for_current_device(
     let new_stream = device.build_input_stream(
         &stream_config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            for channels in data.chunks_exact(number_of_channels as usize) {
-                let left = channels[left_channel_index];
-                let right = channels[right_channel_index];
+            let number_of_frames = data.len() / number_of_channels as usize;
+            let mut left_channel_samples = Vec::with_capacity(number_of_frames);
+            let mut right_channel_samples = Vec::with_capacity(number_of_frames);
 
-                match producer.send((left, right)) {
-                    Ok(_) => {}
-                    Err(error) => {
-                        println!("Error sending data to channel consumer: {}", error);
-                    }
+            data.chunks_exact(number_of_channels as usize)
+                .for_each(|frame| {
+                    left_channel_samples.push(frame[left_channel_index]);
+                    right_channel_samples.push(frame[right_channel_index]);
+                });
+
+            match producer.send((left_channel_samples, right_channel_samples)) {
+                Ok(_) => {}
+                Err(error) => {
+                    println!("Error sending data to channel consumer: {}", error);
                 }
             }
         },

@@ -18,7 +18,7 @@ slint::include_modules!();
 
 const EXIT_CODE_ERROR: i32 = 1;
 const TARGET_OUTPUT_LEVEL: f32 = -12.0;
-const RMS_BUFFER_LENGTH: usize = 1440;
+const NUMBER_OF_DEFAULT_SIZED_INPUT_BUFFERS: usize = 19;
 
 fn main() {
     // Initialize the UI
@@ -241,18 +241,38 @@ fn main() {
 
 fn update_level_meter_values_in_the_ui(
     ui_weak: Weak<AppWindow>,
-    meter_reader: Receiver<(f32, f32)>,
+    meter_reader: Receiver<(Vec<f32>, Vec<f32>)>,
 ) {
-    let mut left_sample_buffer: Vec<f32> = Vec::new();
-    let mut right_sample_buffer: Vec<f32> = Vec::new();
+    let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
+    let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
     let mut last_left_rms = 0.0;
     let mut last_right_rms = 0.0;
 
     thread::spawn(move || {
-        while let Ok((left_level, right_level)) = meter_reader.recv() {
-            if left_sample_buffer.len() >= RMS_BUFFER_LENGTH {
-                let left = calculate_rms(&mut left_sample_buffer);
-                let right = calculate_rms(&mut right_sample_buffer);
+        while let Ok((left_samples, right_samples)) = meter_reader.recv() {
+            left_input_buffer_collection.insert(0, left_samples);
+            right_input_buffer_collection.insert(0, right_samples);
+
+            if left_input_buffer_collection.len() > NUMBER_OF_DEFAULT_SIZED_INPUT_BUFFERS {
+                let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .collect();
+
+                left_input_buffer_collection.truncate(0);
+
+                let mut right_samples_buffer: Vec<f32> = right_input_buffer_collection
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .collect();
+
+                right_input_buffer_collection.truncate(0);
+
+                let left = get_rms_of_sine_wave_samples(&mut left_samples_buffer);
+                let right = get_rms_of_sine_wave_samples(&mut right_samples_buffer);
+
                 if last_left_rms != left || last_right_rms != right {
                     last_left_rms = left;
                     last_right_rms = right;
@@ -283,12 +303,7 @@ fn update_level_meter_values_in_the_ui(
                         ui.set_right_level_box_value(SharedString::from(right_formatted));
                     });
                 }
-                left_sample_buffer.pop();
-                right_sample_buffer.pop();
             }
-
-            left_sample_buffer.insert(0, left_level);
-            right_sample_buffer.insert(0, right_level);
         }
         println!("Level Meter Thread Exited");
     });
@@ -299,8 +314,15 @@ fn calculate_rms(samples: &mut Vec<f32>) -> f32 {
         return 0.0;
     }
 
-    let sum_of_squares: f32 = samples.iter().map(|&sample| sample * sample).sum();
+    let sum_of_squares: f32 = samples.iter().map(|&sample| sample.powi(2)).sum();
     ((get_dbfs_from_rms((sum_of_squares / samples.len() as f32).sqrt()) * 10.00).floor()) / 10.0
+}
+
+fn get_rms_of_sine_wave_samples(samples: &mut Vec<f32>) -> f32 {
+    let peak = samples
+        .iter()
+        .fold(0.0, |acc, &x| if x.abs() > acc { x } else { acc });
+    get_dbfs_from_rms(peak)
 }
 
 fn get_dbfs_from_rms(sample: f32) -> f32 {

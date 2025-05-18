@@ -1,66 +1,7 @@
-import { ComboBox, Button, GridBox, Switch, StandardButton } from "std-widgets.slint";
+import { ComboBox, Button, GridBox, Switch } from "std-widgets.slint";
 import { Theme } from "../ui/theme.slint";
 
-export component Error inherits Dialog {
 
-    in property <bool> show_error;
-    in property <string> message;
-    in property <bool> visibility: true;
-
-    callback fatal_error_clicked();
-
-    title: Theme.error-dialog-title;
-    visible: visibility;
-
-    TouchArea {
-        enabled: true;
-        z: 1;
-        horizontal-stretch: 1;
-        vertical-stretch: 1;
-        width: Theme.window-width;
-        height: Theme.window-height;
-
-        Rectangle {
-            background: Theme.window-background;
-            opacity: 0.5;
-            padding: 0px;
-            width: Theme.window-width * 2;
-            height: Theme.window-height * 2;
-        }
-
-        Rectangle {
-            background: Theme.window-background;
-            border-color: Theme.error-text-color;
-            border-radius: Theme.border-radius;
-            border-width: Theme.border-width;
-            width: 300px;
-            height: 200px;
-            z: 2.0;
-
-            VerticalLayout {
-                alignment: space-between;
-                spacing: 30px;
-                padding: 20px;
-
-                Text {
-                    text: message;
-                    wrap: word-wrap;
-                    horizontal-alignment: center;
-                    color: Theme.text-color;
-                    font-size: Theme.heading-size;
-                    font-weight: Theme.text-weight-bold;
-                }
-
-                StandardButton {
-                    kind: ok;
-                    clicked => {
-                        root.fatal_error_clicked();
-                    }
-                }
-            }
-        }
-    }
-}
 
 export component Label inherits Text {
     in-out property <string> label;

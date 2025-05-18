@@ -2,7 +2,6 @@ use crate::devices::Devices;
 use crate::errors::LocalError;
 use slint::{ModelRc, PlatformError, SharedString, VecModel};
 use std::error::Error;
-use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -38,77 +37,71 @@ impl UI {
             Err(_) => return Err(Box::new(LocalError::UIDeviceData)),
         };
 
-        let display_data = devices.get_display_data();
+        let input_device_list = devices.get_input_device_list();
+        let output_device_list = devices.get_output_device_list();
+        let current_input_device = devices.get_current_input_device();
+        let current_output_device = devices.get_current_output_device();
 
-        let input_device_model = get_model_from_string_slice(&display_data.input_device_list.0);
-        self.ui.set_input_device_list(input_device_model);
-
-        let output_device_model = get_model_from_string_slice(&display_data.output_device_list.0);
-        self.ui.set_output_device_list(output_device_model);
+        self.ui
+            .set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
+        self.ui
+            .set_output_device_list(get_model_from_string_slice(&output_device_list.devices));
 
         self.ui.set_input_channel_list(get_model_from_string_slice(
-            &display_data.input_device_list.1[devices.active_input_device.0 as usize].clone(),
+            &input_device_list.channels[current_input_device.index as usize].clone(),
         ));
 
         self.ui.set_output_channel_list(get_model_from_string_slice(
-            &display_data.output_device_list.1[devices.active_output_device.0 as usize].clone(),
+            &devices.output_devices.output_device_list.channels
+                [current_output_device.index as usize]
+                .clone(),
         ));
 
         self.ui
-            .set_current_output_device(SharedString::from(devices.active_output_device.1.clone()));
+            .set_current_output_device(SharedString::from(current_output_device.name.clone()));
+
         self.ui.set_left_current_output_channel(SharedString::from(
-            devices.active_output_device.2.clone(),
-        ));
-        self.ui
-            .set_current_input_device(SharedString::from(devices.active_input_device.1.clone()));
-        self.ui.set_left_current_input_channel(SharedString::from(
-            devices.active_input_device.2.clone(),
+            current_output_device.left_channel.clone(),
         ));
 
-        if devices.active_output_device.3.is_empty() {
+        self.ui
+            .set_current_input_device(SharedString::from(current_input_device.name.clone()));
+
+        self.ui.set_left_current_input_channel(SharedString::from(
+            current_input_device.left_channel.clone(),
+        ));
+
+        if current_output_device.right_channel.is_empty() {
             self.ui.set_right_output_enabled(false);
         } else {
             self.ui.set_right_output_enabled(true);
             self.ui.set_right_current_output_channel(SharedString::from(
-                devices.active_output_device.3.clone(),
+                current_output_device.right_channel.clone(),
             ));
         }
 
-        if devices.active_input_device.3.is_empty() {
+        if current_input_device.right_channel.is_empty() {
             self.ui.set_right_input_enabled(false);
         } else {
             self.ui.set_right_input_enabled(true);
             self.ui.set_right_current_input_channel(SharedString::from(
-                devices.active_input_device.3.clone(),
+                current_input_device.right_channel.clone(),
             ));
         }
-
-        // INPUT DEVICE CHANGE CALLBACK
-        self.on_select_new_input_device_callback(devices_mutex.clone());
-
-        // OUTPUT DEVICE CHANGE CALLBACK
-        self.on_select_new_output_device_callback(devices_mutex.clone());
-
-        // OUTPUT CHANNEL CHANGE CALLBACK
-        self.on_select_new_output_channel_callback(devices_mutex.clone());
-
-        // INPUT CHANNEL CHANGE CALLBACK
-        self.on_select_new_input_channel_callback(devices_mutex.clone());
-
-        // Set up the callback for the start stop button
-        self.on_start_button_pressed_callback(devices_mutex.clone());
-
-        // Set up the callback for the fatal error dialog box
-        self.ui.on_fatal_error_clicked(|| {
-            exit(1);
-        });
 
         Ok(())
     }
 
-    pub fn call_fatal_error(&self, message: &str) {
-        self.ui.set_fatal_error_message(SharedString::from(message));
-        self.ui.set_fatal_error_visable(true);
+    pub fn create_ui_callbacks(&self, devices_mutex: Arc<Mutex<Devices>>) {
+        self.on_select_new_input_device_callback(devices_mutex.clone());
+
+        self.on_select_new_output_device_callback(devices_mutex.clone());
+
+        self.on_select_new_output_channel_callback(devices_mutex.clone());
+
+        self.on_select_new_input_channel_callback(devices_mutex.clone());
+
+        self.on_start_button_pressed_callback(devices_mutex.clone());
     }
 
     pub fn on_start_button_pressed_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
@@ -127,6 +120,8 @@ impl UI {
 
         self.ui.on_selected_input_device(move |index, device| {
             if let Ok(mut devices) = devices_mutex.lock() {
+                let current_input_device = devices.get_current_input_device();
+
                 devices.set_current_input_device_on_ui_callback((index, device.to_string()));
 
                 let app_weak = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
@@ -137,15 +132,15 @@ impl UI {
 
                 app_weak.set_input_channel_list(input_device_list);
                 app_weak.set_left_current_input_channel(SharedString::from(
-                    devices.active_input_device.2.clone(),
+                    current_input_device.left_channel.clone(),
                 ));
 
-                if devices.active_input_device.3.is_empty() {
+                if current_input_device.right_channel.is_empty() {
                     app_weak.set_right_input_enabled(false);
                 } else {
                     app_weak.set_right_input_enabled(true);
                     app_weak.set_right_current_input_channel(SharedString::from(
-                        devices.active_input_device.3.clone(),
+                        current_input_device.right_channel.clone(),
                     ));
                 }
             }
@@ -159,6 +154,8 @@ impl UI {
             if let Ok(mut devices) = devices_mutex.lock() {
                 let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
 
+                let current_output_device = devices.get_current_output_device();
+
                 devices.set_current_output_device_on_ui_callback((index, device.to_string()));
 
                 let output_device_list = get_model_from_string_slice(
@@ -166,15 +163,15 @@ impl UI {
                 );
                 ui.set_output_channel_list(output_device_list);
                 ui.set_left_current_output_channel(SharedString::from(
-                    devices.active_output_device.2.clone(),
+                    current_output_device.left_channel.clone(),
                 ));
 
-                if devices.active_output_device.3.is_empty() {
+                if current_output_device.right_channel.is_empty() {
                     ui.set_right_output_enabled(false);
                 } else {
                     ui.set_right_output_enabled(true);
                     ui.set_right_current_output_channel(SharedString::from(
-                        devices.active_output_device.3.clone(),
+                        current_output_device.right_channel.clone(),
                     ));
                 }
             }
@@ -205,7 +202,7 @@ impl UI {
             });
     }
 
-    pub fn update_level_meter_values_in_the_ui(
+    pub fn start_level_meter(
         &self,
         devices_mutex: Arc<Mutex<Devices>>,
     ) -> Result<(), Box<dyn Error>> {

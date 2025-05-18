@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 const EXIT_CODE_ERROR: i32 = 1;
 
 fn main() -> Result<(), slint::PlatformError> {
-    // Initialize the audio devices lists
     let devices = match Devices::new() {
         Ok(device) => device,
         Err(error) => {
@@ -32,13 +31,15 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
-    match ui.update_level_meter_values_in_the_ui(devices_arc_mutex.clone()) {
+    match ui.start_level_meter(devices_arc_mutex.clone()) {
         Ok(_) => {}
         Err(error) => {
             handle_local_error(LocalError::MeterReaderUIUpdater, error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     };
+
+    ui.create_ui_callbacks(devices_arc_mutex.clone());
 
     // Start the UI and enter the main program loop
     ui.run()

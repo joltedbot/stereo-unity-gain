@@ -1,5 +1,5 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label} from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error} from "../ui/components.slint";
 import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
@@ -34,6 +34,19 @@ export component AppWindow inherits Window {
 
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
+
+    in-out property <bool> error-dialog-visible: false;
+    in-out property <string> error-message: "";
+    callback close-error-dialog();
+
+    Error {
+        message: error-message;
+        visibility: error-dialog-visible;
+        z: 2.0;
+        fatal_error_clicked => {
+            root.close-error-dialog();
+        }
+    }
 
     Rectangle {
         padding: 4px;

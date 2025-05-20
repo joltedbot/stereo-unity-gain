@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+pub const EXIT_CODE_ERROR: i32 = 1;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum LocalError {
     #[error("Error Initializing Audio Devices")]
@@ -17,8 +19,35 @@ pub enum LocalError {
     #[error("No Default Output Audio Devices")]
     NoDefaultOutputDevice,
 
-    #[error("Error Retrieving the Audio Devices Data for the UI")]
-    UIDeviceData,
+    #[error("Error Retrieving the Audio Devices Data for the UI: {0}")]
+    UIDeviceData(String),
+
+    #[error("Error starting the tone generator: {0}")]
+    ToneGeneratorStart(String),
+
+    #[error("Error stoping the tone generator: {0}")]
+    ToneGeneratorStop(String),
+
+    #[error("Error starting the level meter: {0}")]
+    LevelMeterStart(String),
+
+    #[error("Error stoping the level meter: {0}")]
+    LevelMeterStop(String),
+
+    #[error("Device {0} no longer exists")]
+    DeviceNotFound(String),
+
+    #[error("Failed to configure an output stream: {0}")]
+    OutputStream(String),
+
+    #[error("Failed to configure an input stream: {0}")]
+    InputStream(String),
+
+    #[error("Failed to access device configuration: {0}")]
+    DeviceConfiguration(String),
+
+    #[error("Failed to generate channel index: {0}")]
+    ChannelIndex(String),
 }
 
 pub fn handle_local_error(local_error: LocalError, specific_error: String) {

@@ -2,13 +2,12 @@ use crate::devices::Devices;
 use crate::errors::LocalError;
 use slint::{ModelRc, PlatformError, SharedString, VecModel};
 use std::error::Error;
-use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 slint::include_modules!();
 
-const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 19;
+const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
 const TARGET_OUTPUT_LEVEL: f32 = -12.0;
 
 const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
@@ -33,7 +32,7 @@ impl UI {
 
     pub fn initialize_ui_with_device_data(
         &mut self,
-        devices_mutex: Rc<Mutex<Devices>>,
+        devices_mutex: Arc<Mutex<Devices>>,
     ) -> Result<(), Box<dyn Error>> {
         let devices = match devices_mutex.lock() {
             Ok(devices) => devices,
@@ -74,28 +73,28 @@ impl UI {
             current_input_device.left_channel.clone(),
         ));
 
-        if current_output_device.right_channel.is_empty() {
-            self.ui.set_right_output_enabled(false);
-        } else {
-            self.ui.set_right_output_enabled(true);
-            self.ui.set_right_current_output_channel(SharedString::from(
-                current_output_device.right_channel.clone(),
-            ));
+        match current_output_device.right_channel {
+            None => self.ui.set_right_output_enabled(false),
+            Some(channel) => {
+                self.ui.set_right_output_enabled(true);
+                self.ui
+                    .set_right_current_output_channel(SharedString::from(channel));
+            }
         }
 
-        if current_input_device.right_channel.is_empty() {
-            self.ui.set_right_input_enabled(false);
-        } else {
-            self.ui.set_right_input_enabled(true);
-            self.ui.set_right_current_input_channel(SharedString::from(
-                current_input_device.right_channel.clone(),
-            ));
+        match current_input_device.right_channel {
+            None => self.ui.set_right_input_enabled(false),
+            Some(channel) => {
+                self.ui.set_right_input_enabled(true);
+                self.ui
+                    .set_right_current_input_channel(SharedString::from(channel));
+            }
         }
 
         Ok(())
     }
 
-    pub fn create_ui_callbacks(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn create_ui_callbacks(&self, devices_mutex: Arc<Mutex<Devices>>) {
         self.on_select_new_input_device_callback(devices_mutex.clone());
 
         self.on_select_new_output_device_callback(devices_mutex.clone());
@@ -107,7 +106,7 @@ impl UI {
         self.on_start_button_pressed_callback(devices_mutex.clone());
     }
 
-    pub fn on_start_button_pressed_callback(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn on_start_button_pressed_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
         let ui = self
             .ui
             .as_weak()
@@ -128,7 +127,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_input_device_callback(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn on_select_new_input_device_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
         let ui_weak = self.ui.as_weak();
 
         self.ui.on_selected_input_device(move |index, device| {
@@ -147,13 +146,12 @@ impl UI {
                             current_input_device.left_channel.clone(),
                         ));
 
-                        if current_input_device.right_channel.is_empty() {
-                            ui.set_right_input_enabled(false);
-                        } else {
-                            ui.set_right_input_enabled(true);
-                            ui.set_right_current_input_channel(SharedString::from(
-                                current_input_device.right_channel.clone(),
-                            ));
+                        match current_input_device.right_channel {
+                            None => ui.set_right_input_enabled(false),
+                            Some(channel) => {
+                                ui.set_right_input_enabled(true);
+                                ui.set_right_current_input_channel(SharedString::from(channel));
+                            }
                         }
                     }
                     Err(_) => {
@@ -167,7 +165,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_output_device_callback(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn on_select_new_output_device_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
         let ui_weak = self.ui.as_weak();
 
         self.ui.on_selected_output_device(move |index, device| {
@@ -186,13 +184,12 @@ impl UI {
                             current_output_device.left_channel.clone(),
                         ));
 
-                        if current_output_device.right_channel.is_empty() {
-                            ui.set_right_output_enabled(false);
-                        } else {
-                            ui.set_right_output_enabled(true);
-                            ui.set_right_current_output_channel(SharedString::from(
-                                current_output_device.right_channel.clone(),
-                            ));
+                        match current_output_device.right_channel {
+                            None => ui.set_right_output_enabled(false),
+                            Some(channel) => {
+                                ui.set_right_output_enabled(true);
+                                ui.set_right_current_output_channel(SharedString::from(channel));
+                            }
                         }
                     }
                     Err(_) => {
@@ -206,16 +203,21 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_input_channel_callback(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn on_select_new_input_channel_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
         let ui_weak = self.ui.as_weak();
         self.ui
             .on_selected_input_channel(move |left_channel, right_channel| {
                 if let Ok(mut devices) = devices_mutex.lock() {
+                    let left_input_channel = left_channel.to_string();
+
+                    let right_input_channel = if right_channel.is_empty() {
+                        None
+                    } else {
+                        Some(right_channel.to_string())
+                    };
+
                     if devices
-                        .set_input_channel_on_ui_callback(
-                            left_channel.to_string(),
-                            right_channel.to_string(),
-                        )
+                        .set_input_channel_on_ui_callback(left_input_channel, right_input_channel)
                         .is_err()
                     {
                         if let Err(err) = devices.input_devices.reset_to_default_input_device() {
@@ -228,15 +230,22 @@ impl UI {
             });
     }
 
-    pub fn on_select_new_output_channel_callback(&self, devices_mutex: Rc<Mutex<Devices>>) {
+    pub fn on_select_new_output_channel_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
         let ui_weak = self.ui.as_weak();
         self.ui
             .on_selected_output_channel(move |left_channel, right_channel| {
                 if let Ok(mut devices) = devices_mutex.lock() {
+                    let left_output_channel = left_channel.to_string();
+                    let right_output_channel = if right_channel.is_empty() {
+                        None
+                    } else {
+                        Some(right_channel.to_string())
+                    };
+
                     if devices
                         .set_output_channel_on_ui_callback(
-                            left_channel.to_string(),
-                            right_channel.to_string(),
+                            left_output_channel,
+                            right_output_channel,
                         )
                         .is_err()
                     {
@@ -252,7 +261,7 @@ impl UI {
 
     pub fn start_level_meter(
         &self,
-        devices_mutex: Rc<Mutex<Devices>>,
+        devices_mutex: Arc<Mutex<Devices>>,
     ) -> Result<(), Box<dyn Error>> {
         let meter_reader = match devices_mutex.lock() {
             Ok(mut reader) => reader.get_meter_reader(),
@@ -267,9 +276,6 @@ impl UI {
 
         thread::spawn(move || {
             while let Ok((left_samples, right_samples)) = meter_reader.recv() {
-                left_input_buffer_collection.insert(0, left_samples);
-                right_input_buffer_collection.insert(0, right_samples);
-
                 if left_input_buffer_collection.len()
                     > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
                 {
@@ -299,17 +305,18 @@ impl UI {
                         let left_delta = left - TARGET_OUTPUT_LEVEL;
                         let right_delta = right - TARGET_OUTPUT_LEVEL;
 
-                        // Format the values for display
                         let left_formatted = format_peak_delta_values_for_display(left_delta);
                         let right_formatted = format_peak_delta_values_for_display(right_delta);
 
-                        // Update UI safely on the main thread
                         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                             ui.set_left_level_box_value(SharedString::from(left_formatted));
                             ui.set_right_level_box_value(SharedString::from(right_formatted));
                         });
                     }
                 }
+
+                left_input_buffer_collection.insert(0, left_samples);
+                right_input_buffer_collection.insert(0, right_samples);
             }
         });
 

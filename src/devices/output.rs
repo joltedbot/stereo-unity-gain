@@ -1,7 +1,7 @@
-use crate::devices::{CurrentDevice, DeviceList, get_channel_index_from_channel_name};
-use crate::errors::{EXIT_CODE_ERROR, LocalError};
+use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
+use crate::errors::{LocalError, EXIT_CODE_ERROR};
 use cpal::traits::*;
-use cpal::{Device, Host, Stream, default_host};
+use cpal::{default_host, Device, Host, Stream};
 use sine::Sine;
 use std::error::Error;
 use std::process::exit;
@@ -33,11 +33,11 @@ impl OutputDevices {
             &output_device_list.devices,
         )?;
 
-        let left_output_channel_index =
-            get_channel_index_from_channel_name(&current_output_device.left_channel)?;
-
-        let right_output_channel_index =
-            get_channel_index_from_channel_name(&current_output_device.right_channel)?;
+        let (left_output_channel_index, right_output_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &current_output_device.left_channel,
+                &current_output_device.right_channel,
+            )?;
 
         let output_stream = create_output_steam(
             &default_output_device,
@@ -84,10 +84,11 @@ impl OutputDevices {
 
         let left_channel = output_device_channels[0].clone();
 
+        let left_channel = output_device_channels[0].clone();
         let right_channel = if output_device_channels.len() > 1 {
-            output_device_channels[1].clone()
+            Some(output_device_channels[1].clone())
         } else {
-            "".to_string()
+            None
         };
 
         self.current_output_device = CurrentDevice {
@@ -105,7 +106,7 @@ impl OutputDevices {
     pub fn set_output_channel_on_ui_callback(
         &mut self,
         left_output_channel: String,
-        right_output_channel: String,
+        right_output_channel: Option<String>,
     ) -> Result<(), LocalError> {
         self.stop()?;
         self.current_output_device.left_channel = left_output_channel;
@@ -113,11 +114,11 @@ impl OutputDevices {
 
         self.set_output_device(self.current_output_device.clone())?;
 
-        let left_output_channel_index =
-            get_channel_index_from_channel_name(&self.current_output_device.left_channel)?;
-
-        let right_output_channel_index =
-            get_channel_index_from_channel_name(&self.current_output_device.right_channel)?;
+        let (left_output_channel_index, right_output_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &self.current_output_device.left_channel,
+                &self.current_output_device.right_channel,
+            )?;
 
         self.output_stream = create_output_steam(
             &self.output_device,
@@ -139,11 +140,11 @@ impl OutputDevices {
         self.output_device = self.get_output_device_from_device_name(device.name.clone())?;
         self.current_output_device = device;
 
-        let left_output_channel_index =
-            get_channel_index_from_channel_name(&self.current_output_device.left_channel)?;
-
-        let right_output_channel_index =
-            get_channel_index_from_channel_name(&self.current_output_device.right_channel)?;
+        let (left_output_channel_index, right_output_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &self.current_output_device.left_channel,
+                &self.current_output_device.right_channel,
+            )?;
 
         self.output_stream = create_output_steam(
             &self.output_device,
@@ -199,7 +200,7 @@ impl OutputDevices {
 fn create_output_steam(
     device: &Device,
     left_channel_index: usize,
-    right_channel_index: usize,
+    right_channel_index: Option<usize>,
 ) -> Result<Stream, LocalError> {
     let config_result = device
         .default_output_config()
@@ -217,7 +218,9 @@ fn create_output_steam(
                 for channels in data.chunks_mut(number_of_channels as usize) {
                     let tone_sample = wave.generate_tone_sample();
                     channels[left_channel_index] = tone_sample;
-                    channels[right_channel_index] = tone_sample;
+                    if let Some(index) = right_channel_index {
+                        channels[index] = tone_sample;
+                    }
                 }
             },
             |err| {
@@ -246,11 +249,10 @@ pub fn get_default_device_data_from_output_device(
     let default_output_channels = get_channel_list_from_output_device(device);
 
     let left_channel = default_output_channels[0].clone();
-
     let right_channel = if default_output_channels.len() > 1 {
-        default_output_channels[1].clone()
+        Some(default_output_channels[1].clone())
     } else {
-        "".to_string()
+        None
     };
 
     Ok(CurrentDevice {

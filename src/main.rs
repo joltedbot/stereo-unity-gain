@@ -3,11 +3,10 @@ mod errors;
 mod ui;
 
 use crate::devices::Devices;
-use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
+use crate::errors::{handle_local_error, LocalError, EXIT_CODE_ERROR};
 use crate::ui::UI;
 use std::process::exit;
-use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), slint::PlatformError> {
     let devices = match Devices::new() {
@@ -18,7 +17,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
-    let devices_mutex = Rc::new(Mutex::new(devices));
+    let devices_mutex = Arc::new(Mutex::new(devices));
 
     let mut ui = UI::new()?;
 

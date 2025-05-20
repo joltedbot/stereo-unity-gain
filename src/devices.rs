@@ -7,18 +7,18 @@ use crate::errors::LocalError;
 use crossbeam_channel::Receiver;
 use std::error::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct DeviceList {
     pub devices: Vec<String>,
     pub channels: Vec<Vec<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default, Debug)]
 pub struct CurrentDevice {
     pub index: i32,
     pub name: String,
     pub left_channel: String,
-    pub right_channel: String,
+    pub right_channel: Option<String>,
 }
 
 pub struct Devices {
@@ -102,7 +102,7 @@ impl Devices {
     pub fn set_input_channel_on_ui_callback(
         &mut self,
         left_input_channel: String,
-        right_input_channel: String,
+        right_input_channel: Option<String>,
     ) -> Result<(), LocalError> {
         self.input_devices
             .set_input_channel_on_ui_callback(left_input_channel, right_input_channel)
@@ -112,7 +112,7 @@ impl Devices {
     pub fn set_output_channel_on_ui_callback(
         &mut self,
         left_output_channel: String,
-        right_output_channel: String,
+        right_output_channel: Option<String>,
     ) -> Result<(), LocalError> {
         self.output_devices
             .set_output_channel_on_ui_callback(left_output_channel, right_output_channel)
@@ -120,14 +120,26 @@ impl Devices {
     }
 }
 
-pub fn get_channel_index_from_channel_name(channel: &str) -> Result<usize, LocalError> {
-    if channel.is_empty() {
-        return Ok(0);
-    }
-
+fn get_channel_index_from_channel_name(channel: &str) -> Result<usize, LocalError> {
     let channel_number = channel
         .parse::<usize>()
         .map_err(|err| LocalError::ChannelIndex(err.to_string()))?;
 
     Ok(channel_number.saturating_sub(1))
+}
+
+pub fn get_channel_indexes_from_channel_names(
+    left_channel: &str,
+    right_channel: &Option<String>,
+) -> Result<(usize, Option<usize>), LocalError> {
+    let left_index = get_channel_index_from_channel_name(left_channel)?;
+    let mut right_index = None;
+
+    if right_channel.is_some() {
+        right_index = Some(get_channel_index_from_channel_name(
+            right_channel.as_ref().unwrap(),
+        )?);
+    }
+
+    Ok((left_index, right_index))
 }

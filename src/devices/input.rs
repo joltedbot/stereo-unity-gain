@@ -1,8 +1,8 @@
-use crate::devices::{CurrentDevice, DeviceList, get_channel_index_from_channel_name};
-use crate::errors::{EXIT_CODE_ERROR, LocalError};
+use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
+use crate::errors::{LocalError, EXIT_CODE_ERROR};
 use cpal::traits::*;
-use cpal::{Device, Host, Stream, default_host};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use cpal::{default_host, Device, Host, Stream};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::error::Error;
 use std::process::exit;
 
@@ -31,11 +31,11 @@ impl InputDevices {
         let current_input_device =
             get_default_device_data_from_input_device(&input_device, &input_device_list.devices)?;
 
-        let left_input_channel_index =
-            get_channel_index_from_channel_name(&current_input_device.left_channel)?;
-
-        let right_input_channel_index =
-            get_channel_index_from_channel_name(&current_input_device.right_channel)?;
+        let (left_input_channel_index, right_input_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &current_input_device.left_channel,
+                &current_input_device.right_channel,
+            )?;
 
         let (producer, consumer) = unbounded();
         let channel_consumer = consumer;
@@ -88,9 +88,9 @@ impl InputDevices {
 
         let left_channel = input_device_channels[0].clone();
         let right_channel = if input_device_channels.len() > 1 {
-            input_device_channels[1].clone()
+            Some(input_device_channels[1].clone())
         } else {
-            "".to_string()
+            None
         };
 
         self.current_input_device = CurrentDevice {
@@ -108,17 +108,17 @@ impl InputDevices {
     pub fn set_input_channel_on_ui_callback(
         &mut self,
         left_input_channel: String,
-        right_input_channel: String,
+        right_input_channel: Option<String>,
     ) -> Result<(), LocalError> {
         self.stop()?;
         self.current_input_device.left_channel = left_input_channel;
         self.current_input_device.right_channel = right_input_channel;
 
-        let left_input_channel_index =
-            get_channel_index_from_channel_name(&self.current_input_device.left_channel)?;
-
-        let right_input_channel_index =
-            get_channel_index_from_channel_name(&self.current_input_device.right_channel)?;
+        let (left_input_channel_index, right_input_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &self.current_input_device.left_channel,
+                &self.current_input_device.right_channel,
+            )?;
 
         self.input_stream = create_input_stream(
             &self.input_device,
@@ -141,11 +141,11 @@ impl InputDevices {
         self.input_device = self.get_input_device_from_device_name(device.name.clone())?;
         self.current_input_device = device;
 
-        let left_input_channel_index =
-            get_channel_index_from_channel_name(&self.current_input_device.left_channel)?;
-
-        let right_input_channel_index =
-            get_channel_index_from_channel_name(&self.current_input_device.right_channel)?;
+        let (left_input_channel_index, right_input_channel_index) =
+            get_channel_indexes_from_channel_names(
+                &self.current_input_device.left_channel,
+                &self.current_input_device.right_channel,
+            )?;
 
         self.input_stream = create_input_stream(
             &self.input_device,
@@ -206,7 +206,7 @@ impl InputDevices {
 fn create_input_stream(
     device: &Device,
     left_channel_index: usize,
-    right_channel_index: usize,
+    right_channel_index: Option<usize>,
     producer: Sender<(Vec<f32>, Vec<f32>)>,
 ) -> Result<Stream, LocalError> {
     let config_result = device
@@ -217,23 +217,29 @@ fn create_input_stream(
 
     let number_of_channels = stream_config.channels;
 
+    let mut left_channel_samples = Vec::new();
+    let mut right_channel_samples = Vec::new();
+
     device
         .build_input_stream(
             &stream_config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                let number_of_frames = data.len() / number_of_channels as usize;
-                let mut left_channel_samples = Vec::with_capacity(number_of_frames);
-                let mut right_channel_samples = Vec::with_capacity(number_of_frames);
-
                 data.chunks_exact(number_of_channels as usize)
                     .for_each(|frame| {
                         left_channel_samples.push(frame[left_channel_index]);
-                        right_channel_samples.push(frame[right_channel_index]);
+                        if let Some(index) = right_channel_index {
+                            right_channel_samples.push(frame[index]);
+                        }
                     });
 
-                if let Err(err) = producer.send((left_channel_samples, right_channel_samples)) {
+                if let Err(err) =
+                    producer.send((left_channel_samples.clone(), right_channel_samples.clone()))
+                {
                     eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
                 }
+
+                left_channel_samples.clear();
+                right_channel_samples.clear();
             },
             |err| {
                 eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
@@ -255,9 +261,9 @@ fn get_default_device_data_from_input_device(
     let left_channel = default_input_channels[0].clone();
 
     let right_channel = if default_input_channels.len() > 1 {
-        default_input_channels[1].clone()
+        Some(default_input_channels[1].clone())
     } else {
-        "".to_string()
+        None
     };
 
     Ok(CurrentDevice {

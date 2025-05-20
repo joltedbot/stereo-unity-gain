@@ -13,7 +13,6 @@ export component Label inherits Text {
 
 export component LevelBox inherits Rectangle {
     in property <string> value;
-
     width: Theme.level-box-width;
     height: Theme.level-box-height;
 
@@ -38,6 +37,8 @@ export component LevelBox inherits Rectangle {
                 box-background.background = Theme.level-box-background-low;
             } else if (self.text.to-float() > 0.1) {
                 box-background.background = Theme.level-box-background-high;
+            } else if (self.text == "-inf") {
+                box-background.background = Theme.level-box-background-start;
             } else {
                 box-background.background = Theme.level-box-background-right;
             }

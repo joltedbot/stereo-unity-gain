@@ -80,8 +80,6 @@ impl InputDevices {
         &mut self,
         input_device_data: (i32, String),
     ) -> Result<(), LocalError> {
-        self.stop()?;
-
         self.input_device = self.get_input_device_from_device_name(input_device_data.1.clone())?;
 
         let input_device_channels = &self.input_device_list.channels[input_device_data.0 as usize];
@@ -110,7 +108,6 @@ impl InputDevices {
         left_input_channel: String,
         right_input_channel: Option<String>,
     ) -> Result<(), LocalError> {
-        self.stop()?;
         self.current_input_device.left_channel = left_input_channel;
         self.current_input_device.right_channel = right_input_channel;
 
@@ -136,8 +133,6 @@ impl InputDevices {
     }
 
     pub fn set_input_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
-        self.stop()?;
-
         self.input_device = self.get_input_device_from_device_name(device.name.clone())?;
         self.current_input_device = device;
 

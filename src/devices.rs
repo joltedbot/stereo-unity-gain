@@ -85,6 +85,7 @@ impl Devices {
         &mut self,
         input_device_data: (i32, String),
     ) -> Result<(), LocalError> {
+        self.stop()?;
         self.input_devices
             .set_input_device_on_ui_callback(input_device_data)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
@@ -94,6 +95,7 @@ impl Devices {
         &mut self,
         output_device_data: (i32, String),
     ) -> Result<(), LocalError> {
+        self.stop()?;
         self.output_devices
             .set_output_device_on_ui_callback(output_device_data)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
@@ -104,6 +106,7 @@ impl Devices {
         left_input_channel: String,
         right_input_channel: Option<String>,
     ) -> Result<(), LocalError> {
+        self.stop()?;
         self.input_devices
             .set_input_channel_on_ui_callback(left_input_channel, right_input_channel)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
@@ -114,6 +117,7 @@ impl Devices {
         left_output_channel: String,
         right_output_channel: Option<String>,
     ) -> Result<(), LocalError> {
+        self.stop()?;
         self.output_devices
             .set_output_channel_on_ui_callback(left_output_channel, right_output_channel)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))

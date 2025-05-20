@@ -353,6 +353,8 @@ fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
         format!("+{:.1}", peak_delta_value)
     } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
         "0.0".to_string()
+    } else if peak_delta_value == f32::NEG_INFINITY {
+        "-".to_string()
     } else {
         format!("{:.1}", peak_delta_value)
     }

@@ -3,7 +3,7 @@ mod errors;
 mod ui;
 
 use crate::devices::Devices;
-use crate::errors::{handle_local_error, LocalError, EXIT_CODE_ERROR};
+use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::ui::UI;
 use std::process::exit;
 use std::sync::{Arc, Mutex};

@@ -74,15 +74,11 @@ impl OutputDevices {
         &mut self,
         output_device_data: (i32, String),
     ) -> Result<(), LocalError> {
-        self.stop()?;
-
         self.output_device =
             self.get_output_device_from_device_name(output_device_data.1.clone())?;
 
         let output_device_channels =
             &self.output_device_list.channels[output_device_data.0 as usize];
-
-        let left_channel = output_device_channels[0].clone();
 
         let left_channel = output_device_channels[0].clone();
         let right_channel = if output_device_channels.len() > 1 {
@@ -108,7 +104,6 @@ impl OutputDevices {
         left_output_channel: String,
         right_output_channel: Option<String>,
     ) -> Result<(), LocalError> {
-        self.stop()?;
         self.current_output_device.left_channel = left_output_channel;
         self.current_output_device.right_channel = right_output_channel;
 
@@ -135,8 +130,6 @@ impl OutputDevices {
     }
 
     pub fn set_output_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
-        self.stop()?;
-
         self.output_device = self.get_output_device_from_device_name(device.name.clone())?;
         self.current_output_device = device;
 

@@ -1,7 +1,7 @@
-use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
-use crate::errors::{LocalError, EXIT_CODE_ERROR};
+use crate::devices::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
+use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use cpal::traits::*;
-use cpal::{default_host, Device, Host, Stream};
+use cpal::{Device, Host, Stream, default_host};
 use sine::Sine;
 use std::error::Error;
 use std::process::exit;

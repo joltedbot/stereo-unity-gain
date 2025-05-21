@@ -1,6 +1,6 @@
 use crate::devices::Devices;
 use crate::errors::LocalError;
-use slint::{ModelRc, PlatformError, SharedString, VecModel};
+use slint::{ModelRc, PlatformError, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -9,7 +9,7 @@ slint::include_modules!();
 
 const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
 const TARGET_OUTPUT_LEVEL: f32 = -12.0;
-
+const DEFAULT_DELTA_MODE: bool = true;
 const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
     "A fatal error has occurred in the UI. The application will now exit.";
 
@@ -104,6 +104,8 @@ impl UI {
         self.on_select_new_input_channel_callback(devices_mutex.clone());
 
         self.on_start_button_pressed_callback(devices_mutex.clone());
+
+        self.on_delta_mode_switch_toggled_callback(devices_mutex.clone());
     }
 
     pub fn on_start_button_pressed_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
@@ -259,23 +261,50 @@ impl UI {
             });
     }
 
+    pub fn on_delta_mode_switch_toggled_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+        let ui_weak = self.ui.as_weak();
+
+        self.ui
+            .on_delta_mode_checked(move |delta_mode_enabled| match devices_mutex.lock() {
+                Ok(mut devices) => {
+                    let mode_sender = devices.get_meter_mode_sender();
+                    match mode_sender.send(delta_mode_enabled) {
+                        Ok(_) => devices.delta_mode_enabled = delta_mode_enabled,
+                        Err(error) => handle_ui_error(&ui_weak, &error.to_string()),
+                    }
+                }
+                Err(error) => {
+                    handle_ui_error(&ui_weak, &error.to_string());
+                }
+            });
+    }
+
     pub fn start_level_meter(
         &self,
         devices_mutex: Arc<Mutex<Devices>>,
     ) -> Result<(), Box<dyn Error>> {
-        let meter_reader = match devices_mutex.lock() {
-            Ok(mut reader) => reader.get_meter_reader(),
-            Err(err) => return Err(Box::new(LocalError::UIDeviceData(err.to_string()))),
-        };
-
         let ui_weak = self.ui.as_weak();
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut last_left_peak = 0.0;
         let mut last_right_peak = 0.0;
 
+        let mut devices = devices_mutex
+            .lock()
+            .map_err(|error| LocalError::UIDeviceData(error.to_string()))?;
+
+        let sample_receiver = devices.get_sample_buffer_receiver();
+        let mode_receiver = devices.get_meter_mode_receiver();
+
+        let mut delta_mode = DEFAULT_DELTA_MODE;
+
         thread::spawn(move || {
-            while let Ok((left_samples, right_samples)) = meter_reader.recv() {
+            while let Ok((left_samples, right_samples)) = sample_receiver.recv() {
+                if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
+                    println!("Delta mode enabled: {}", delta_mode_enabled);
+                    delta_mode = delta_mode_enabled;
+                };
+
                 if left_input_buffer_collection.len()
                     > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
                 {
@@ -295,18 +324,22 @@ impl UI {
 
                     right_input_buffer_collection.truncate(0);
 
-                    let left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
-                    let right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
+                    println!("Left samples buffer: {:?}", left_samples_buffer);
+
+                    let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
+                    let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
 
                     if last_left_peak != left || last_right_peak != right {
                         last_left_peak = left;
                         last_right_peak = right;
 
-                        let left_delta = left - TARGET_OUTPUT_LEVEL;
-                        let right_delta = right - TARGET_OUTPUT_LEVEL;
+                        if delta_mode {
+                            left -= TARGET_OUTPUT_LEVEL;
+                            right -= TARGET_OUTPUT_LEVEL;
+                        }
 
-                        let left_formatted = format_peak_delta_values_for_display(left_delta);
-                        let right_formatted = format_peak_delta_values_for_display(right_delta);
+                        let left_formatted = format_peak_delta_values_for_display(left);
+                        let right_formatted = format_peak_delta_values_for_display(right);
 
                         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                             ui.set_left_level_box_value(SharedString::from(left_formatted));
@@ -358,4 +391,10 @@ fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
     } else {
         format!("{:.1}", peak_delta_value)
     }
+}
+
+pub fn handle_ui_error(ui_weak: &Weak<AppWindow>, error_message: &str) {
+    let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
+    ui.set_error_message(SharedString::from(error_message.to_string()));
+    ui.set_error_dialog_visible(true);
 }

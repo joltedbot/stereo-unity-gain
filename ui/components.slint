@@ -13,6 +13,7 @@ export component Label inherits Text {
 
 export component LevelBox inherits Rectangle {
     in property <string> value;
+    in property <bool> delta-mode: true;
     width: Theme.level-box-width;
     height: Theme.level-box-height;
 
@@ -33,12 +34,12 @@ export component LevelBox inherits Rectangle {
         color: Theme.text-color;
 
         changed text => {
-            if (self.text.to-float() < -0.1) {
+            if (!delta-mode || self.text == "-inf") {
+                box-background.background = Theme.level-box-background-start;
+            } else if (self.text.to-float() < -0.1) {
                 box-background.background = Theme.level-box-background-low;
             } else if (self.text.to-float() > 0.1) {
                 box-background.background = Theme.level-box-background-high;
-            } else if (self.text == "-inf") {
-                box-background.background = Theme.level-box-background-start;
             } else {
                 box-background.background = Theme.level-box-background-right;
             }
@@ -101,20 +102,18 @@ export component Line inherits Rectangle {
 }
 
 export component ReferenceFrequency inherits Rectangle {
-    height: 160px;
-    width: 275px;
-    padding: 10px;
+    height: Theme.reference-box-height;
+    width: Theme.reference-box-width;
 
     HorizontalLayout {
         alignment: space-around;
-        height: 120px;
         GridLayout {
-            spacing: 10px;
             Row {
                 Text {
                     colspan: 2;
                     text: "Reference Tone";
                     horizontal-alignment: center;
+                    vertical-alignment: center;
                     font-size: Theme.heading-size;
                     font-weight: Theme.text-weight-bold;
                     color: Theme.text-color;
@@ -131,6 +130,7 @@ export component ReferenceFrequency inherits Rectangle {
 
             Row {
                 Text {
+                    vertical-alignment: center;
                     text: "Frequency:";
                     font-size: Theme.label-size;
                     font-weight: 900;
@@ -138,6 +138,7 @@ export component ReferenceFrequency inherits Rectangle {
                 }
 
                 Text {
+                    vertical-alignment: center;
                     text: "1000 Hz (1kHz)";
                     font-size: Theme.label-size;
                     color: Theme.text-color;
@@ -146,6 +147,7 @@ export component ReferenceFrequency inherits Rectangle {
 
             Row {
                 Text {
+                    vertical-alignment: center;
                     text: "Output Level:";
                     font-size: Theme.label-size;
                     font-weight: 900;
@@ -153,6 +155,7 @@ export component ReferenceFrequency inherits Rectangle {
                 }
 
                 Text {
+                    vertical-alignment: center;
                     text: "-12 dbfs";
                     font-size: Theme.label-size;
                     color: Theme.text-color;
@@ -164,13 +167,6 @@ export component ReferenceFrequency inherits Rectangle {
                     colspan: 2;
                     background: Theme.text-color;
                     height: 2px;
-                }
-            }
-
-            Row {
-                Rectangle {
-                    colspan: 2;
-                    height: 10px;
                 }
             }
         }
@@ -195,12 +191,38 @@ export component StartButton inherits Rectangle {
     HorizontalLayout {
         alignment: space-around;
         start_button := Button {
-            width: 120px;
-            height: 30px;
+            width: Theme.start-button-width;
+            height: Theme.start-button-height;
             clicked => {
                 active = !active;
                 tone_start_button_pressed(active);
             }
+        }
+    }
+}
+
+export component DeltaModeSwitch inherits Rectangle {
+    in-out property <bool> delta_mode: true;
+    callback delta_mode_checked(bool);
+
+    HorizontalLayout {
+        alignment: center;
+        delta_switch := Switch {
+            height: Theme.delta-switch-height;
+            checked: delta_mode;
+            toggled() => {
+                root.delta_mode_checked(self.checked);
+            }
+        }
+
+        Rectangle {
+            width: Theme.delta-switch-spacer;
+        }
+
+        Label {
+            vertical-alignment: center;
+            text: delta_switch.checked ? "Delta Mode is On" : "Delta Mode is Off";
+            color: delta_switch.checked ? Theme.text-color : Theme.greyed-out;
         }
     }
 }

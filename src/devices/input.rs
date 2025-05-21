@@ -8,14 +8,18 @@ use std::process::exit;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
 
+pub type ReaderState = bool;
+
 pub struct InputDevices {
     host: Host,
     pub input_device: Device,
     pub input_stream: Stream,
     pub current_input_device: CurrentDevice,
     pub input_device_list: DeviceList,
-    channel_consumer: Receiver<(Vec<f32>, Vec<f32>)>,
-    channel_producer: Sender<(Vec<f32>, Vec<f32>)>,
+    sample_buffer_receiver: Receiver<(Vec<f32>, Vec<f32>)>,
+    sample_buffer_sender: Sender<(Vec<f32>, Vec<f32>)>,
+    meter_mode_receiver: Receiver<ReaderState>,
+    meter_mode_sender: Sender<ReaderState>,
 }
 
 impl InputDevices {
@@ -37,15 +41,19 @@ impl InputDevices {
                 &current_input_device.right_channel,
             )?;
 
-        let (producer, consumer) = unbounded();
-        let channel_consumer = consumer;
-        let channel_producer = producer.clone();
+        let (sample_sender, sample_receiver) = unbounded();
+        let sample_buffer_receiver = sample_receiver;
+        let sample_buffer_sender = sample_sender.clone();
+
+        let (mode_sender, mode_receiver) = unbounded();
+        let meter_mode_receiver = mode_receiver;
+        let meter_mode_sender = mode_sender;
 
         let input_stream = create_input_stream(
             &input_device,
             left_input_channel_index,
             right_input_channel_index,
-            producer.clone(),
+            sample_sender,
         )?;
 
         input_stream.pause()?;
@@ -54,8 +62,10 @@ impl InputDevices {
             host,
             input_device,
             input_stream,
-            channel_producer,
-            channel_consumer,
+            sample_buffer_sender,
+            sample_buffer_receiver,
+            meter_mode_sender,
+            meter_mode_receiver,
             current_input_device,
             input_device_list,
         })
@@ -121,7 +131,7 @@ impl InputDevices {
             &self.input_device,
             left_input_channel_index,
             right_input_channel_index,
-            self.channel_producer.clone(),
+            self.sample_buffer_sender.clone(),
         )
         .map_err(|err| LocalError::InputStream(err.to_string()))?;
 
@@ -146,7 +156,7 @@ impl InputDevices {
             &self.input_device,
             left_input_channel_index,
             right_input_channel_index,
-            self.channel_producer.clone(),
+            self.sample_buffer_sender.clone(),
         )
         .map_err(|err| LocalError::InputStream(err.to_string()))?;
 
@@ -174,8 +184,16 @@ impl InputDevices {
         }
     }
 
-    pub fn get_meter_reader(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
-        self.channel_consumer.clone()
+    pub fn get_meter_mode_receiver(&mut self) -> Receiver<ReaderState> {
+        self.meter_mode_receiver.clone()
+    }
+
+    pub fn get_meter_mode_sender(&mut self) -> Sender<ReaderState> {
+        self.meter_mode_sender.clone()
+    }
+
+    pub fn get_sample_buffer_receiver(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
+        self.sample_buffer_receiver.clone()
     }
 
     pub fn reset_to_default_input_device(&mut self) -> Result<CurrentDevice, LocalError> {

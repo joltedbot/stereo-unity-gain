@@ -1,10 +1,10 @@
 mod input;
 mod output;
 
-use crate::devices::input::InputDevices;
+use crate::devices::input::{InputDevices, ReaderState};
 use crate::devices::output::OutputDevices;
 use crate::errors::LocalError;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use std::error::Error;
 
 #[derive(Clone, Default, Debug)]
@@ -22,6 +22,7 @@ pub struct CurrentDevice {
 }
 
 pub struct Devices {
+    pub delta_mode_enabled: bool,
     pub input_devices: InputDevices,
     pub output_devices: OutputDevices,
 }
@@ -32,6 +33,7 @@ impl Devices {
         let output_devices = OutputDevices::new()?;
 
         Ok(Self {
+            delta_mode_enabled: true,
             input_devices,
             output_devices,
         })
@@ -77,8 +79,16 @@ impl Devices {
             .clone()
     }
 
-    pub fn get_meter_reader(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
-        self.input_devices.get_meter_reader()
+    pub fn get_sample_buffer_receiver(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
+        self.input_devices.get_sample_buffer_receiver()
+    }
+
+    pub fn get_meter_mode_receiver(&mut self) -> Receiver<ReaderState> {
+        self.input_devices.get_meter_mode_receiver()
+    }
+
+    pub fn get_meter_mode_sender(&mut self) -> Sender<ReaderState> {
+        self.input_devices.get_meter_mode_sender()
     }
 
     pub fn set_current_input_device_on_ui_callback(

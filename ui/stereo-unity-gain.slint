@@ -1,5 +1,5 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error} from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, DeltaModeSwitch} from "../ui/components.slint";
 import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
@@ -31,6 +31,9 @@ export component AppWindow inherits Window {
 
     in-out property <string> left_level_box_value: "-";
     in-out property <string> right_level_box_value: "-";
+
+    callback delta_mode_checked(bool);
+    in-out property <bool> delta_mode_active: true;
 
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
@@ -212,6 +215,17 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     alignment: start;
                     ReferenceFrequency { }
+
+                    delta_mode_switch := DeltaModeSwitch {
+                        delta_mode_checked(checked) => {
+                            root.delta_mode_active = checked;
+                            root.delta_mode_checked(checked);
+                            root.start_button_pressed(false);
+                            start_button.active = false;
+                            left_level_box.delta-mode = checked;
+                            right_level_box.delta-mode = checked;
+                        }
+                    }
 
                     start_button := StartButton {
                         active: start_button_active;

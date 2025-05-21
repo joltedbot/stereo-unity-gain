@@ -301,7 +301,6 @@ impl UI {
         thread::spawn(move || {
             while let Ok((left_samples, right_samples)) = sample_receiver.recv() {
                 if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
-                    println!("Delta mode enabled: {}", delta_mode_enabled);
                     delta_mode = delta_mode_enabled;
                 };
 
@@ -323,8 +322,6 @@ impl UI {
                         .collect();
 
                     right_input_buffer_collection.truncate(0);
-
-                    println!("Left samples buffer: {:?}", left_samples_buffer);
 
                     let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
                     let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);

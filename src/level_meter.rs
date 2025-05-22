@@ -1,8 +1,8 @@
-use crate::devices::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
-use crate::errors::{EXIT_CODE_ERROR, LocalError};
+use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
+use crate::errors::{LocalError, EXIT_CODE_ERROR};
 use cpal::traits::*;
-use cpal::{Device, Host, Stream, default_host};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use cpal::{default_host, Device, Host, Stream};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::error::Error;
 use std::process::exit;
 
@@ -10,19 +10,18 @@ const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
 
 pub type ReaderState = bool;
 
-pub struct InputDevices {
-    host: Host,
-    pub input_device: Device,
-    pub input_stream: Stream,
-    pub current_input_device: CurrentDevice,
-    pub input_device_list: DeviceList,
+pub struct LevelMeter {
+    input_device: Device,
+    input_stream: Stream,
+    current_input_device: CurrentDevice,
+    input_device_list: DeviceList,
     sample_buffer_receiver: Receiver<(Vec<f32>, Vec<f32>)>,
     sample_buffer_sender: Sender<(Vec<f32>, Vec<f32>)>,
     meter_mode_receiver: Receiver<ReaderState>,
     meter_mode_sender: Sender<ReaderState>,
 }
 
-impl InputDevices {
+impl LevelMeter {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
@@ -59,7 +58,6 @@ impl InputDevices {
         input_stream.pause()?;
 
         Ok(Self {
-            host,
             input_device,
             input_stream,
             sample_buffer_sender,
@@ -84,6 +82,27 @@ impl InputDevices {
             .pause()
             .map_err(|err| LocalError::LevelMeterStop(err.to_string()))?;
         Ok(())
+    }
+
+    pub fn get_current_input_device(&self) -> CurrentDevice {
+        self.current_input_device.clone()
+    }
+
+    pub fn get_input_device_list(&self) -> DeviceList {
+        self.input_device_list.clone()
+    }
+
+    pub fn get_current_input_device_channels(&self) -> Vec<String> {
+        self.input_device_list.channels[self.current_input_device.index as usize].clone()
+    }
+
+    pub fn set_current_input_device_on_ui_callback(
+        &mut self,
+        input_device_data: (i32, String),
+    ) -> Result<(), LocalError> {
+        self.stop()?;
+        self.set_input_device_on_ui_callback(input_device_data)
+            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
     }
 
     pub fn set_input_device_on_ui_callback(
@@ -142,7 +161,7 @@ impl InputDevices {
         Ok(())
     }
 
-    pub fn set_input_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
+    fn set_input_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
         self.input_device = self.get_input_device_from_device_name(device.name.clone())?;
         self.current_input_device = device;
 
@@ -171,8 +190,9 @@ impl InputDevices {
         &mut self,
         device_name: String,
     ) -> Result<Device, LocalError> {
-        let mut input_devices = self
-            .host
+        let host = default_host();
+
+        let mut input_devices = host
             .input_devices()
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
 
@@ -268,7 +288,8 @@ fn get_default_device_data_from_input_device(
     device_list: &[String],
 ) -> Result<CurrentDevice, Box<dyn Error>> {
     let name = device.name()?;
-    let index = get_input_device_data_current_index(device_list, &name);
+    let index = device_list.iter().position(|i| i == &name).unwrap_or(0) as i32;
+
     let default_input_channels = get_channel_list_from_input_device(device);
 
     let left_channel = default_input_channels[0].clone();
@@ -287,7 +308,7 @@ fn get_default_device_data_from_input_device(
     })
 }
 
-pub fn get_channel_list_from_input_device(input_device: &Device) -> Vec<String> {
+fn get_channel_list_from_input_device(input_device: &Device) -> Vec<String> {
     let supported_input_configs = input_device.supported_input_configs();
 
     if let Ok(configs) = supported_input_configs {
@@ -303,16 +324,6 @@ pub fn get_channel_list_from_input_device(input_device: &Device) -> Vec<String> 
     }
 
     Vec::new()
-}
-
-fn get_input_device_data_current_index(
-    input_device_list: &[String],
-    current_input_device: &String,
-) -> i32 {
-    input_device_list
-        .iter()
-        .position(|i| i == current_input_device)
-        .unwrap_or(0) as i32
 }
 
 fn get_input_device_list_from_host(host: &Host) -> Result<DeviceList, Box<dyn Error>> {

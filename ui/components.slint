@@ -221,8 +221,8 @@ export component DeltaModeSwitch inherits Rectangle {
 
         Label {
             vertical-alignment: center;
-            text: delta_switch.checked ? "Delta Mode is On" : "Delta Mode is Off";
-            color: delta_switch.checked ? Theme.text-color : Theme.greyed-out;
+            text: delta_switch.checked ? Theme.delta-mode-on-text : Theme.delta-mode-off-text;
+            color: delta_switch.checked ? Theme.text-color.brighter(0.3) : Theme.text-color;
         }
     }
 }

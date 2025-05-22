@@ -1,7 +1,7 @@
-use crate::devices::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
-use crate::errors::{EXIT_CODE_ERROR, LocalError};
+use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
+use crate::errors::{LocalError, EXIT_CODE_ERROR};
 use cpal::traits::*;
-use cpal::{Device, Host, Stream, default_host};
+use cpal::{default_host, Device, Host, Stream};
 use sine::Sine;
 use std::error::Error;
 use std::process::exit;
@@ -10,15 +10,14 @@ mod sine;
 
 const ERROR_MESSAGE_OUTPUT_STREAM_ERROR: &str = "Output Stream error!";
 
-pub struct OutputDevices {
-    host: Host,
-    pub output_device: Device,
-    pub output_stream: Stream,
-    pub current_output_device: CurrentDevice,
-    pub output_device_list: DeviceList,
+pub struct ToneGenerator {
+    output_device: Device,
+    output_stream: Stream,
+    current_output_device: CurrentDevice,
+    output_device_list: DeviceList,
 }
 
-impl OutputDevices {
+impl ToneGenerator {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
@@ -48,7 +47,6 @@ impl OutputDevices {
         output_stream.pause()?;
 
         Ok(Self {
-            host,
             output_device: default_output_device,
             output_stream,
             current_output_device,
@@ -68,6 +66,27 @@ impl OutputDevices {
             .pause()
             .map_err(|err| LocalError::ToneGeneratorStop(err.to_string()))?;
         Ok(())
+    }
+
+    pub fn get_output_device_list(&self) -> DeviceList {
+        self.output_device_list.clone()
+    }
+
+    pub fn get_current_output_device(&self) -> CurrentDevice {
+        self.current_output_device.clone()
+    }
+
+    pub fn get_current_output_device_channels(&self) -> Vec<String> {
+        self.output_device_list.channels[self.current_output_device.index as usize].clone()
+    }
+
+    pub fn set_current_output_device_on_ui_callback(
+        &mut self,
+        output_device_data: (i32, String),
+    ) -> Result<(), LocalError> {
+        self.stop()?;
+        self.set_output_device_on_ui_callback(output_device_data)
+            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
     }
 
     pub fn set_output_device_on_ui_callback(
@@ -157,8 +176,9 @@ impl OutputDevices {
         &mut self,
         device_name: String,
     ) -> Result<Device, LocalError> {
-        let mut output_devices = self
-            .host
+        let host = default_host();
+
+        let mut output_devices = host
             .output_devices()
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
 
@@ -225,20 +245,18 @@ fn create_output_steam(
         .map_err(|err| LocalError::OutputStream(err.to_string()))
 }
 
-pub fn get_output_device_data_current_index(device_list: &[String], device_name: &str) -> i32 {
-    device_list
-        .iter()
-        .position(|name| name == device_name)
-        .map(|pos| pos as i32)
-        .unwrap_or(0)
-}
-
 pub fn get_default_device_data_from_output_device(
     device: &Device,
     device_list: &[String],
 ) -> Result<CurrentDevice, Box<dyn Error>> {
     let name = device.name()?;
-    let index = get_output_device_data_current_index(device_list, &name);
+
+    let index = device_list
+        .iter()
+        .position(|device_name| device_name == &name)
+        .map(|pos| pos as i32)
+        .unwrap_or(0);
+
     let default_output_channels = get_channel_list_from_output_device(device);
 
     let left_channel = default_output_channels[0].clone();

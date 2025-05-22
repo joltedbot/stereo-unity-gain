@@ -1,11 +1,4 @@
-mod input;
-mod output;
-
-use crate::devices::input::{InputDevices, ReaderState};
-use crate::devices::output::OutputDevices;
 use crate::errors::LocalError;
-use crossbeam_channel::{Receiver, Sender};
-use std::error::Error;
 
 #[derive(Clone, Default, Debug)]
 pub struct DeviceList {
@@ -21,139 +14,24 @@ pub struct CurrentDevice {
     pub right_channel: Option<String>,
 }
 
-pub struct Devices {
-    pub delta_mode_enabled: bool,
-    pub input_devices: InputDevices,
-    pub output_devices: OutputDevices,
+pub fn get_channel_indexes_from_channel_names(
+    left_channel: &str,
+    right_channel: &Option<String>,
+) -> Result<(usize, Option<usize>), LocalError> {
+    let left_index = get_index_from_name(left_channel)?;
+    let mut right_index: Option<usize> = None;
+
+    if right_channel.is_some() {
+        right_index = Some(get_index_from_name(right_channel.as_ref().unwrap())?);
+    }
+
+    Ok((left_index, right_index))
 }
 
-impl Devices {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
-        let input_devices = InputDevices::new()?;
-        let output_devices = OutputDevices::new()?;
-
-        Ok(Self {
-            delta_mode_enabled: true,
-            input_devices,
-            output_devices,
-        })
-    }
-
-    pub fn start(&mut self) -> Result<(), LocalError> {
-        self.input_devices.start()?;
-        self.output_devices.start()?;
-        Ok(())
-    }
-
-    pub fn stop(&mut self) -> Result<(), LocalError> {
-        self.input_devices.stop()?;
-        self.output_devices.stop()?;
-        Ok(())
-    }
-
-    pub fn get_current_input_device(&self) -> CurrentDevice {
-        self.input_devices.current_input_device.clone()
-    }
-
-    pub fn get_input_device_list(&self) -> DeviceList {
-        self.input_devices.input_device_list.clone()
-    }
-
-    pub fn get_current_input_device_channels(&self) -> Vec<String> {
-        self.input_devices.input_device_list.channels
-            [self.input_devices.current_input_device.index as usize]
-            .clone()
-    }
-
-    pub fn get_output_device_list(&self) -> DeviceList {
-        self.output_devices.output_device_list.clone()
-    }
-
-    pub fn get_current_output_device(&self) -> CurrentDevice {
-        self.output_devices.current_output_device.clone()
-    }
-
-    pub fn get_current_output_device_channels(&self) -> Vec<String> {
-        self.output_devices.output_device_list.channels
-            [self.output_devices.current_output_device.index as usize]
-            .clone()
-    }
-
-    pub fn get_sample_buffer_receiver(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
-        self.input_devices.get_sample_buffer_receiver()
-    }
-
-    pub fn get_meter_mode_receiver(&mut self) -> Receiver<ReaderState> {
-        self.input_devices.get_meter_mode_receiver()
-    }
-
-    pub fn get_meter_mode_sender(&mut self) -> Sender<ReaderState> {
-        self.input_devices.get_meter_mode_sender()
-    }
-
-    pub fn set_current_input_device_on_ui_callback(
-        &mut self,
-        input_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-        self.input_devices
-            .set_input_device_on_ui_callback(input_device_data)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-
-    pub fn set_current_output_device_on_ui_callback(
-        &mut self,
-        output_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-        self.output_devices
-            .set_output_device_on_ui_callback(output_device_data)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-
-    pub fn set_input_channel_on_ui_callback(
-        &mut self,
-        left_input_channel: String,
-        right_input_channel: Option<String>,
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-        self.input_devices
-            .set_input_channel_on_ui_callback(left_input_channel, right_input_channel)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-
-    pub fn set_output_channel_on_ui_callback(
-        &mut self,
-        left_output_channel: String,
-        right_output_channel: Option<String>,
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-        self.output_devices
-            .set_output_channel_on_ui_callback(left_output_channel, right_output_channel)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-}
-
-fn get_channel_index_from_channel_name(channel: &str) -> Result<usize, LocalError> {
+fn get_index_from_name(channel: &str) -> Result<usize, LocalError> {
     let channel_number = channel
         .parse::<usize>()
         .map_err(|err| LocalError::ChannelIndex(err.to_string()))?;
 
     Ok(channel_number.saturating_sub(1))
-}
-
-pub fn get_channel_indexes_from_channel_names(
-    left_channel: &str,
-    right_channel: &Option<String>,
-) -> Result<(usize, Option<usize>), LocalError> {
-    let left_index = get_channel_index_from_channel_name(left_channel)?;
-    let mut right_index = None;
-
-    if right_channel.is_some() {
-        right_index = Some(get_channel_index_from_channel_name(
-            right_channel.as_ref().unwrap(),
-        )?);
-    }
-
-    Ok((left_index, right_index))
 }

@@ -1,5 +1,6 @@
-use crate::devices::Devices;
 use crate::errors::LocalError;
+use crate::level_meter::LevelMeter;
+use crate::tone_generator::ToneGenerator;
 use slint::{ModelRc, PlatformError, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -32,17 +33,24 @@ impl UI {
 
     pub fn initialize_ui_with_device_data(
         &mut self,
-        devices_mutex: Arc<Mutex<Devices>>,
+        input_devices_mutex: Arc<Mutex<LevelMeter>>,
+        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
     ) -> Result<(), Box<dyn Error>> {
-        let devices = match devices_mutex.lock() {
-            Ok(devices) => devices,
+        let input_device = match input_devices_mutex.lock() {
+            Ok(device) => device,
             Err(err) => return Err(Box::new(LocalError::UIDeviceData(err.to_string()))),
         };
 
-        let input_device_list = devices.get_input_device_list();
-        let output_device_list = devices.get_output_device_list();
-        let current_input_device = devices.get_current_input_device();
-        let current_output_device = devices.get_current_output_device();
+        let output_device = match output_devices_mutex.lock() {
+            Ok(device) => device,
+            Err(err) => return Err(Box::new(LocalError::UIDeviceData(err.to_string()))),
+        };
+
+        let input_device_list = input_device.get_input_device_list();
+        let current_input_device = input_device.get_current_input_device();
+
+        let output_device_list = output_device.get_output_device_list();
+        let current_output_device = output_device.get_current_output_device();
 
         self.ui
             .set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
@@ -54,9 +62,7 @@ impl UI {
         ));
 
         self.ui.set_output_channel_list(get_model_from_string_slice(
-            &devices.output_devices.output_device_list.channels
-                [current_output_device.index as usize]
-                .clone(),
+            &output_device_list.channels[current_output_device.index as usize].clone(),
         ));
 
         self.ui
@@ -94,53 +100,80 @@ impl UI {
         Ok(())
     }
 
-    pub fn create_ui_callbacks(&self, devices_mutex: Arc<Mutex<Devices>>) {
-        self.on_select_new_input_device_callback(devices_mutex.clone());
+    pub fn create_ui_callbacks(
+        &self,
+        input_device_mutex: Arc<Mutex<LevelMeter>>,
+        output_device_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
+        self.on_select_new_input_device_callback(input_device_mutex.clone());
+        self.on_select_new_input_channel_callback(input_device_mutex.clone());
 
-        self.on_select_new_output_device_callback(devices_mutex.clone());
+        self.on_select_new_output_device_callback(output_device_mutex.clone());
+        self.on_select_new_output_channel_callback(output_device_mutex.clone());
 
-        self.on_select_new_output_channel_callback(devices_mutex.clone());
-
-        self.on_select_new_input_channel_callback(devices_mutex.clone());
-
-        self.on_start_button_pressed_callback(devices_mutex.clone());
-
-        self.on_delta_mode_switch_toggled_callback(devices_mutex.clone());
+        self.on_start_button_pressed_callback(
+            input_device_mutex.clone(),
+            output_device_mutex.clone(),
+        );
+        self.on_delta_mode_switch_toggled_callback(input_device_mutex.clone());
     }
 
-    pub fn on_start_button_pressed_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
-        let ui = self
-            .ui
-            .as_weak()
-            .upgrade()
-            .expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-        self.ui.on_start_button_pressed(move |is_active| {
-            if let Ok(mut devices) = devices_mutex.lock() {
-                let result = match is_active {
-                    true => devices.start(),
-                    false => devices.stop(),
-                };
+    pub fn on_start_button_pressed_callback(
+        &self,
+        input_device_mutex: Arc<Mutex<LevelMeter>>,
+        output_device_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
+        let ui_weak = self.ui.as_weak();
 
-                if let Err(err) = result {
-                    ui.set_error_message(SharedString::from(err.to_string()));
-                    ui.set_error_dialog_visible(true);
-                };
-            };
+        self.ui.on_start_button_pressed(move |is_active| {
+            match input_device_mutex.lock() {
+                Ok(mut input_device) => match is_active {
+                    true => {
+                        if let Err(error) = input_device.start() {
+                            handle_ui_error(&ui_weak, &error.to_string())
+                        }
+                    }
+                    false => {
+                        if let Err(error) = input_device.stop() {
+                            handle_ui_error(&ui_weak, &error.to_string())
+                        }
+                    }
+                },
+                Err(error) => handle_ui_error(&ui_weak, &error.to_string()),
+            }
+
+            match output_device_mutex.lock() {
+                Ok(mut output_device) => match is_active {
+                    true => {
+                        if let Err(error) = output_device.start() {
+                            handle_ui_error(&ui_weak, &error.to_string())
+                        }
+                    }
+                    false => {
+                        if let Err(error) = output_device.stop() {
+                            handle_ui_error(&ui_weak, &error.to_string())
+                        }
+                    }
+                },
+                Err(error) => handle_ui_error(&ui_weak, &error.to_string()),
+            }
         });
     }
 
-    pub fn on_select_new_input_device_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+    pub fn on_select_new_input_device_callback(&self, input_device_mutex: Arc<Mutex<LevelMeter>>) {
         let ui_weak = self.ui.as_weak();
 
         self.ui.on_selected_input_device(move |index, device| {
-            if let Ok(mut devices) = devices_mutex.lock() {
+            if let Ok(mut input_device) = input_device_mutex.lock() {
                 let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
 
-                match devices.set_current_input_device_on_ui_callback((index, device.to_string())) {
+                match input_device
+                    .set_current_input_device_on_ui_callback((index, device.to_string()))
+                {
                     Ok(_) => {
-                        let current_input_device = devices.get_current_input_device();
+                        let current_input_device = input_device.get_current_input_device();
                         let input_device_list = get_model_from_string_slice(
-                            devices.get_current_input_device_channels().as_slice(),
+                            input_device.get_current_input_device_channels().as_slice(),
                         );
 
                         ui.set_input_channel_list(input_device_list);
@@ -157,7 +190,7 @@ impl UI {
                         }
                     }
                     Err(_) => {
-                        if let Err(err) = devices.input_devices.reset_to_default_input_device() {
+                        if let Err(err) = input_device.reset_to_default_input_device() {
                             ui.set_error_message(SharedString::from(err.to_string()));
                             ui.set_error_dialog_visible(true);
                         }
@@ -167,19 +200,25 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_output_device_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+    pub fn on_select_new_output_device_callback(
+        &self,
+        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
         let ui_weak = self.ui.as_weak();
 
         self.ui.on_selected_output_device(move |index, device| {
-            if let Ok(mut devices) = devices_mutex.lock() {
+            if let Ok(mut output_device) = output_devices_mutex.lock() {
                 let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
 
-                match devices.set_current_output_device_on_ui_callback((index, device.to_string()))
+                match output_device
+                    .set_current_output_device_on_ui_callback((index, device.to_string()))
                 {
                     Ok(_) => {
-                        let current_output_device = devices.get_current_output_device();
+                        let current_output_device = output_device.get_current_output_device();
                         let output_device_list = get_model_from_string_slice(
-                            devices.get_current_output_device_channels().as_slice(),
+                            output_device
+                                .get_current_output_device_channels()
+                                .as_slice(),
                         );
                         ui.set_output_channel_list(output_device_list);
                         ui.set_left_current_output_channel(SharedString::from(
@@ -195,7 +234,7 @@ impl UI {
                         }
                     }
                     Err(_) => {
-                        if let Err(err) = devices.output_devices.reset_to_default_output_device() {
+                        if let Err(err) = output_device.reset_to_default_output_device() {
                             ui.set_error_message(SharedString::from(err.to_string()));
                             ui.set_error_dialog_visible(true);
                         }
@@ -205,11 +244,11 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_input_channel_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+    pub fn on_select_new_input_channel_callback(&self, input_device_mutex: Arc<Mutex<LevelMeter>>) {
         let ui_weak = self.ui.as_weak();
         self.ui
             .on_selected_input_channel(move |left_channel, right_channel| {
-                if let Ok(mut devices) = devices_mutex.lock() {
+                if let Ok(mut device) = input_device_mutex.lock() {
                     let left_input_channel = left_channel.to_string();
 
                     let right_input_channel = if right_channel.is_empty() {
@@ -218,11 +257,11 @@ impl UI {
                         Some(right_channel.to_string())
                     };
 
-                    if devices
+                    if device
                         .set_input_channel_on_ui_callback(left_input_channel, right_input_channel)
                         .is_err()
                     {
-                        if let Err(err) = devices.input_devices.reset_to_default_input_device() {
+                        if let Err(err) = device.reset_to_default_input_device() {
                             let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
                             ui.set_error_message(SharedString::from(err.to_string()));
                             ui.set_error_dialog_visible(true);
@@ -232,11 +271,14 @@ impl UI {
             });
     }
 
-    pub fn on_select_new_output_channel_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+    pub fn on_select_new_output_channel_callback(
+        &self,
+        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
         let ui_weak = self.ui.as_weak();
         self.ui
             .on_selected_output_channel(move |left_channel, right_channel| {
-                if let Ok(mut devices) = devices_mutex.lock() {
+                if let Ok(mut device) = output_devices_mutex.lock() {
                     let left_output_channel = left_channel.to_string();
                     let right_output_channel = if right_channel.is_empty() {
                         None
@@ -244,14 +286,14 @@ impl UI {
                         Some(right_channel.to_string())
                     };
 
-                    if devices
+                    if device
                         .set_output_channel_on_ui_callback(
                             left_output_channel,
                             right_output_channel,
                         )
                         .is_err()
                     {
-                        if let Err(err) = devices.output_devices.reset_to_default_output_device() {
+                        if let Err(err) = device.reset_to_default_output_device() {
                             let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
                             ui.set_error_message(SharedString::from(err.to_string()));
                             ui.set_error_dialog_visible(true);
@@ -261,16 +303,18 @@ impl UI {
             });
     }
 
-    pub fn on_delta_mode_switch_toggled_callback(&self, devices_mutex: Arc<Mutex<Devices>>) {
+    pub fn on_delta_mode_switch_toggled_callback(
+        &self,
+        input_devices_mutex: Arc<Mutex<LevelMeter>>,
+    ) {
         let ui_weak = self.ui.as_weak();
 
         self.ui
-            .on_delta_mode_checked(move |delta_mode_enabled| match devices_mutex.lock() {
-                Ok(mut devices) => {
-                    let mode_sender = devices.get_meter_mode_sender();
-                    match mode_sender.send(delta_mode_enabled) {
-                        Ok(_) => devices.delta_mode_enabled = delta_mode_enabled,
-                        Err(error) => handle_ui_error(&ui_weak, &error.to_string()),
+            .on_delta_mode_checked(move |delta_mode_enabled| match input_devices_mutex.lock() {
+                Ok(mut device) => {
+                    let mode_sender = device.get_meter_mode_sender();
+                    if let Err(error) = mode_sender.send(delta_mode_enabled) {
+                        handle_ui_error(&ui_weak, &error.to_string());
                     }
                 }
                 Err(error) => {
@@ -281,7 +325,7 @@ impl UI {
 
     pub fn start_level_meter(
         &self,
-        devices_mutex: Arc<Mutex<Devices>>,
+        input_devices_mutex: Arc<Mutex<LevelMeter>>,
     ) -> Result<(), Box<dyn Error>> {
         let ui_weak = self.ui.as_weak();
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
@@ -289,7 +333,7 @@ impl UI {
         let mut last_left_peak = 0.0;
         let mut last_right_peak = 0.0;
 
-        let mut devices = devices_mutex
+        let mut devices = input_devices_mutex
             .lock()
             .map_err(|error| LocalError::UIDeviceData(error.to_string()))?;
 

@@ -4,8 +4,11 @@ pub const EXIT_CODE_ERROR: i32 = 1;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum LocalError {
-    #[error("Error Initializing Audio Devices")]
-    DeviceInitialization,
+    #[error("Error Initializing Tone Generator")]
+    ToneGeneratorInitialization,
+
+    #[error("Error Initializing Level Meter")]
+    LevelMeterInitialization,
 
     #[error("Error Initializing User Interface")]
     UIInitialization,

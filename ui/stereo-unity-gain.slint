@@ -220,8 +220,6 @@ export component AppWindow inherits Window {
                         delta_mode_checked(checked) => {
                             root.delta_mode_active = checked;
                             root.delta_mode_checked(checked);
-                            root.start_button_pressed(false);
-                            start_button.active = false;
                             left_level_box.delta-mode = checked;
                             right_level_box.delta-mode = checked;
                         }

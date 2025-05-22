@@ -1,16 +1,12 @@
-use crate::errors::LocalError;
+use crate::devices::{CurrentDevice, DeviceList};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
 use slint::{ModelRc, PlatformError, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 slint::include_modules!();
 
-const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
-const TARGET_OUTPUT_LEVEL: f32 = -12.0;
-const DEFAULT_DELTA_MODE: bool = true;
 const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
     "A fatal error has occurred in the UI. The application will now exit.";
 
@@ -33,25 +29,11 @@ impl UI {
 
     pub fn initialize_ui_with_device_data(
         &mut self,
-        input_devices_mutex: Arc<Mutex<LevelMeter>>,
-        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
+        input_device_list: DeviceList,
+        current_input_device: CurrentDevice,
+        output_device_list: DeviceList,
+        current_output_device: CurrentDevice,
     ) -> Result<(), Box<dyn Error>> {
-        let input_device = match input_devices_mutex.lock() {
-            Ok(device) => device,
-            Err(err) => return Err(Box::new(LocalError::UIDeviceData(err.to_string()))),
-        };
-
-        let output_device = match output_devices_mutex.lock() {
-            Ok(device) => device,
-            Err(err) => return Err(Box::new(LocalError::UIDeviceData(err.to_string()))),
-        };
-
-        let input_device_list = input_device.get_input_device_list();
-        let current_input_device = input_device.get_current_input_device();
-
-        let output_device_list = output_device.get_output_device_list();
-        let current_output_device = output_device.get_current_output_device();
-
         self.ui
             .set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
         self.ui
@@ -323,80 +305,6 @@ impl UI {
             });
     }
 
-    pub fn start_level_meter(
-        &self,
-        input_devices_mutex: Arc<Mutex<LevelMeter>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let ui_weak = self.ui.as_weak();
-        let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
-        let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
-        let mut last_left_peak = 0.0;
-        let mut last_right_peak = 0.0;
-
-        let mut devices = input_devices_mutex
-            .lock()
-            .map_err(|error| LocalError::UIDeviceData(error.to_string()))?;
-
-        let sample_receiver = devices.get_sample_buffer_receiver();
-        let mode_receiver = devices.get_meter_mode_receiver();
-
-        let mut delta_mode = DEFAULT_DELTA_MODE;
-
-        thread::spawn(move || {
-            while let Ok((left_samples, right_samples)) = sample_receiver.recv() {
-                if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
-                    delta_mode = delta_mode_enabled;
-                };
-
-                if left_input_buffer_collection.len()
-                    > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
-                {
-                    let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
-                        .iter()
-                        .flatten()
-                        .copied()
-                        .collect();
-
-                    left_input_buffer_collection.truncate(0);
-
-                    let mut right_samples_buffer: Vec<f32> = right_input_buffer_collection
-                        .iter()
-                        .flatten()
-                        .copied()
-                        .collect();
-
-                    right_input_buffer_collection.truncate(0);
-
-                    let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
-                    let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
-
-                    if last_left_peak != left || last_right_peak != right {
-                        last_left_peak = left;
-                        last_right_peak = right;
-
-                        if delta_mode {
-                            left -= TARGET_OUTPUT_LEVEL;
-                            right -= TARGET_OUTPUT_LEVEL;
-                        }
-
-                        let left_formatted = format_peak_delta_values_for_display(left);
-                        let right_formatted = format_peak_delta_values_for_display(right);
-
-                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_left_level_box_value(SharedString::from(left_formatted));
-                            ui.set_right_level_box_value(SharedString::from(right_formatted));
-                        });
-                    }
-                }
-
-                left_input_buffer_collection.insert(0, left_samples);
-                right_input_buffer_collection.insert(0, right_samples);
-            }
-        });
-
-        Ok(())
-    }
-
     fn setup_error_handling(&self) {
         let ui_weak = self.ui.as_weak();
 
@@ -411,27 +319,6 @@ impl UI {
 pub fn get_model_from_string_slice(devices: &[String]) -> ModelRc<SharedString> {
     let name_list: Vec<SharedString> = devices.iter().map(SharedString::from).collect();
     ModelRc::new(VecModel::from_slice(name_list.as_slice()))
-}
-
-fn get_peak_of_sine_wave_samples(samples: &mut [f32]) -> f32 {
-    let peak = samples.iter().fold(0.0f32, |acc, &x| x.abs().max(acc));
-    get_dbfs_from_peak_sample(peak)
-}
-
-fn get_dbfs_from_peak_sample(sample: f32) -> f32 {
-    20.0 * (sample.abs().log10())
-}
-
-fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
-    if peak_delta_value > 0.1 {
-        format!("+{:.1}", peak_delta_value)
-    } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
-        "0.0".to_string()
-    } else if peak_delta_value == f32::NEG_INFINITY {
-        "-".to_string()
-    } else {
-        format!("{:.1}", peak_delta_value)
-    }
 }
 
 pub fn handle_ui_error(ui_weak: &Weak<AppWindow>, error_message: &str) {

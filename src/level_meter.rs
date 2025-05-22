@@ -1,12 +1,18 @@
 use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
 use crate::errors::{LocalError, EXIT_CODE_ERROR};
+use crate::ui::AppWindow;
 use cpal::traits::*;
 use cpal::{default_host, Device, Host, Stream};
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use slint::{SharedString, Weak};
 use std::error::Error;
 use std::process::exit;
+use std::thread;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
+const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
+const TARGET_OUTPUT_LEVEL: f32 = -12.0;
+const DEFAULT_DELTA_MODE: bool = true;
 
 pub type ReaderState = bool;
 
@@ -234,6 +240,72 @@ impl LevelMeter {
 
         Ok(current_input_device)
     }
+
+    pub fn start_level_meter(&mut self, ui: Weak<AppWindow>) -> Result<(), Box<dyn Error>> {
+        let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
+        let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
+        let mut last_left_peak = 0.0;
+        let mut last_right_peak = 0.0;
+        let mut delta_mode = DEFAULT_DELTA_MODE;
+        let sample_receiver = self.sample_buffer_receiver.clone();
+        let mode_receiver = self.meter_mode_receiver.clone();
+
+        let ui_weak = ui;
+
+        thread::spawn(move || {
+            while let Ok((left_samples, right_samples)) = sample_receiver.recv() {
+                if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
+                    delta_mode = delta_mode_enabled;
+                };
+
+                if left_input_buffer_collection.len()
+                    > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
+                {
+                    let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
+                        .iter()
+                        .flatten()
+                        .copied()
+                        .collect();
+
+                    left_input_buffer_collection.truncate(0);
+
+                    let mut right_samples_buffer: Vec<f32> = right_input_buffer_collection
+                        .iter()
+                        .flatten()
+                        .copied()
+                        .collect();
+
+                    right_input_buffer_collection.truncate(0);
+
+                    let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
+                    let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
+
+                    if last_left_peak != left || last_right_peak != right {
+                        last_left_peak = left;
+                        last_right_peak = right;
+
+                        if delta_mode {
+                            left -= TARGET_OUTPUT_LEVEL;
+                            right -= TARGET_OUTPUT_LEVEL;
+                        }
+
+                        let left_formatted = format_peak_delta_values_for_display(left);
+                        let right_formatted = format_peak_delta_values_for_display(right);
+
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_left_level_box_value(SharedString::from(left_formatted));
+                            ui.set_right_level_box_value(SharedString::from(right_formatted));
+                        });
+                    }
+                }
+
+                left_input_buffer_collection.insert(0, left_samples);
+                right_input_buffer_collection.insert(0, right_samples);
+            }
+        });
+
+        Ok(())
+    }
 }
 
 fn create_input_stream(
@@ -341,4 +413,25 @@ fn get_input_device_list_from_host(host: &Host) -> Result<DeviceList, Box<dyn Er
         devices: input_devices,
         channels: input_channels,
     })
+}
+
+fn get_peak_of_sine_wave_samples(samples: &mut [f32]) -> f32 {
+    let peak = samples.iter().fold(0.0f32, |acc, &x| x.abs().max(acc));
+    get_dbfs_from_peak_sample(peak)
+}
+
+fn get_dbfs_from_peak_sample(sample: f32) -> f32 {
+    20.0 * (sample.abs().log10())
+}
+
+fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
+    if peak_delta_value > 0.1 {
+        format!("+{:.1}", peak_delta_value)
+    } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
+        "0.0".to_string()
+    } else if peak_delta_value == f32::NEG_INFINITY {
+        "-".to_string()
+    } else {
+        format!("{:.1}", peak_delta_value)
+    }
 }

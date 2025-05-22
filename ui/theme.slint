@@ -4,6 +4,16 @@ export global Theme {
     out property <string> start_button_running: "Stop";
     out property <string> start_button_stopped: "Start";
 
+    out property <string> reference-tone-label: "Delta From Reference Tone Level";
+    out property <string> reference-tone-header-text: "Reference Tone";
+    out property <string> left-channel-text: "Left Channel";
+    out property <string> device-header-text: "Audio Device";
+    out property <string> right-channel-text: "Right Channel";
+    out property <string> left_box_label: "Left";
+    out property <string> right_box_label: "Right";
+    out property <string> output-level-label: "Output Level: ";
+    out property <string> output-frequency-label: "Frequency Hz";
+
     out property <length> window-width: 1000px;
     out property <length> window-height: 400px;
     out property <length> window-border-width: 2px;
@@ -42,6 +52,10 @@ export global Theme {
     out property <length> delta-switch-spacer: 15px;
     out property <string> delta-mode-on-text: "Delta Mode";
     out property <string> delta-mode-off-text: "Peak Mode";
+
+    out property <int> frequency-minimum: 100;
+    out property <int> frequency-maximum: 20000;
+    out property <int> frequency-step-size: 100;
 
     out property <color> error-text-color: #992222;
     out property <string> error-dialog-title: "Fatal Error";

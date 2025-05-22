@@ -33,6 +33,7 @@ impl UI {
         current_input_device: CurrentDevice,
         output_device_list: DeviceList,
         current_output_device: CurrentDevice,
+        reference_frequency: f32,
     ) -> Result<(), Box<dyn Error>> {
         self.ui
             .set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
@@ -46,6 +47,8 @@ impl UI {
         self.ui.set_output_channel_list(get_model_from_string_slice(
             &output_device_list.channels[current_output_device.index as usize].clone(),
         ));
+
+        self.ui.set_reference_frequency(reference_frequency);
 
         self.ui
             .set_current_output_device(SharedString::from(current_output_device.name.clone()));
@@ -98,6 +101,8 @@ impl UI {
             output_device_mutex.clone(),
         );
         self.on_delta_mode_switch_toggled_callback(input_device_mutex.clone());
+
+        self.on_reference_frequency_changed_callback(output_device_mutex.clone());
     }
 
     pub fn on_start_button_pressed_callback(
@@ -281,6 +286,27 @@ impl UI {
                             ui.set_error_dialog_visible(true);
                         }
                     }
+                }
+            });
+    }
+
+    fn on_reference_frequency_changed_callback(
+        &self,
+        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
+        let ui_weak = self.ui.as_weak();
+
+        self.ui
+            .on_frequency_changed(move |frequency| match output_devices_mutex.lock() {
+                Ok(mut tone_generator) => {
+                    tone_generator.set_reference_frequency_on_ui_callback(frequency);
+                    let frequency_sender = tone_generator.get_frequency_sender();
+                    if let Err(error) = frequency_sender.send(frequency) {
+                        handle_ui_error(&ui_weak, &error.to_string());
+                    }
+                }
+                Err(error) => {
+                    handle_ui_error(&ui_weak, &error.to_string());
                 }
             });
     }

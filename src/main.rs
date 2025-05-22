@@ -36,6 +36,7 @@ fn main() -> Result<(), slint::PlatformError> {
         level_meter.get_current_input_device(),
         tone_generator.get_output_device_list(),
         tone_generator.get_current_output_device(),
+        tone_generator.get_reference_frequency(),
     ) {
         handle_local_error(LocalError::UIInitialization, err.to_string());
         exit(EXIT_CODE_ERROR);

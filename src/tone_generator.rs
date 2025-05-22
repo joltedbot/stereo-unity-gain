@@ -2,6 +2,7 @@ use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, Devi
 use crate::errors::{LocalError, EXIT_CODE_ERROR};
 use cpal::traits::*;
 use cpal::{default_host, Device, Host, Stream};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use sine::Sine;
 use std::error::Error;
 use std::process::exit;
@@ -9,12 +10,16 @@ use std::process::exit;
 mod sine;
 
 const ERROR_MESSAGE_OUTPUT_STREAM_ERROR: &str = "Output Stream error!";
+const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
 
 pub struct ToneGenerator {
     output_device: Device,
     output_stream: Stream,
     current_output_device: CurrentDevice,
     output_device_list: DeviceList,
+    reference_frequency_receiver: Receiver<f32>,
+    reference_frequency_sender: Sender<f32>,
+    reference_frequency: f32,
 }
 
 impl ToneGenerator {
@@ -38,10 +43,18 @@ impl ToneGenerator {
                 &current_output_device.right_channel,
             )?;
 
+        let (frequency_sender, frequency_receiver) = unbounded();
+        let reference_frequency_receiver = frequency_receiver.clone();
+        let reference_frequency_sender = frequency_sender;
+
+        let reference_frequency = DEFAULT_REFERENCE_FREQUENCY;
+
         let output_stream = create_output_steam(
             &default_output_device,
             left_output_channel_index,
             right_output_channel_index,
+            reference_frequency,
+            frequency_receiver,
         )?;
 
         output_stream.pause()?;
@@ -51,6 +64,9 @@ impl ToneGenerator {
             output_stream,
             current_output_device,
             output_device_list,
+            reference_frequency_receiver,
+            reference_frequency_sender,
+            reference_frequency,
         })
     }
 
@@ -68,6 +84,14 @@ impl ToneGenerator {
         Ok(())
     }
 
+    pub fn get_reference_frequency(&self) -> f32 {
+        self.reference_frequency
+    }
+
+    pub fn get_frequency_sender(&self) -> Sender<f32> {
+        self.reference_frequency_sender.clone()
+    }
+
     pub fn get_output_device_list(&self) -> DeviceList {
         self.output_device_list.clone()
     }
@@ -78,6 +102,10 @@ impl ToneGenerator {
 
     pub fn get_current_output_device_channels(&self) -> Vec<String> {
         self.output_device_list.channels[self.current_output_device.index as usize].clone()
+    }
+
+    pub fn set_reference_frequency_on_ui_callback(&mut self, reference_frequency: f32) {
+        self.reference_frequency = reference_frequency;
     }
 
     pub fn set_current_output_device_on_ui_callback(
@@ -138,6 +166,8 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
+            self.reference_frequency,
+            self.reference_frequency_receiver.clone(),
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -162,6 +192,8 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
+            self.reference_frequency,
+            self.reference_frequency_receiver.clone(),
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -214,6 +246,8 @@ fn create_output_steam(
     device: &Device,
     left_channel_index: usize,
     right_channel_index: Option<usize>,
+    mut reference_frequency: f32,
+    reference_frequency_receiver: Receiver<f32>,
 ) -> Result<Stream, LocalError> {
     let config_result = device
         .default_output_config()
@@ -228,8 +262,12 @@ fn create_output_steam(
         .build_output_stream(
             &stream_config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                if let Ok(frequency) = reference_frequency_receiver.try_recv() {
+                    reference_frequency = frequency;
+                }
+
                 for channels in data.chunks_mut(number_of_channels as usize) {
-                    let tone_sample = wave.generate_tone_sample();
+                    let tone_sample = wave.generate_tone_sample(reference_frequency);
                     channels[left_channel_index] = tone_sample;
                     if let Some(index) = right_channel_index {
                         channels[index] = tone_sample;

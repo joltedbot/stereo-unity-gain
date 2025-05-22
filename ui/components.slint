@@ -1,4 +1,4 @@
-import { ComboBox, Button, GridBox, Switch, StandardButton } from "std-widgets.slint";
+import { ComboBox, Button, GridBox, Switch, StandardButton, Slider, SpinBox } from "std-widgets.slint";
 import { Theme } from "../ui/theme.slint";
 
 
@@ -104,6 +104,8 @@ export component Line inherits Rectangle {
 export component ReferenceFrequency inherits Rectangle {
     height: Theme.reference-box-height;
     width: Theme.reference-box-width;
+    callback frequency_changed(float);
+    in-out property <float> reference_frequency;
 
     HorizontalLayout {
         alignment: space-around;
@@ -111,7 +113,7 @@ export component ReferenceFrequency inherits Rectangle {
             Row {
                 Text {
                     colspan: 2;
-                    text: "Reference Tone";
+                    text: Theme.reference-tone-header-text;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     font-size: Theme.heading-size;
@@ -129,26 +131,43 @@ export component ReferenceFrequency inherits Rectangle {
             }
 
             Row {
+
                 Text {
+                    colspan: 2;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
-                    text: "Frequency:";
+                    text: Theme.output-frequency-label;
                     font-size: Theme.label-size;
                     font-weight: 900;
                     color: Theme.text-color;
                 }
+            }
 
-                Text {
-                    vertical-alignment: center;
-                    text: "1000 Hz (1kHz)";
-                    font-size: Theme.label-size;
-                    color: Theme.text-color;
+            Row {
+                frequency_spinbox := SpinBox {
+                    colspan: 2;
+                    minimum: Theme.frequency-minimum;
+                    maximum: Theme.frequency-maximum;
+                    step-size: Theme.frequency-step-size;
+                    value: reference_frequency;
+
+                    edited(frequency) => {
+                        root.frequency_changed(frequency);
+                    }
+                }
+            }
+
+            Row {
+                Rectangle {
+                    colspan: 2;
+                    height: 10px;
                 }
             }
 
             Row {
                 Text {
                     vertical-alignment: center;
-                    text: "Output Level:";
+                    text: Theme.output-level-label;
                     font-size: Theme.label-size;
                     font-weight: 900;
                     color: Theme.text-color;

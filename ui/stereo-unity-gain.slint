@@ -38,6 +38,9 @@ export component AppWindow inherits Window {
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
 
+    callback frequency_changed(float);
+    in-out property <float> reference_frequency;
+
     in-out property <bool> error-dialog-visible: false;
     in-out property <string> error-message;
     callback close-error-dialog();
@@ -95,7 +98,7 @@ export component AppWindow inherits Window {
                         padding: 10px;
 
                         Label {
-                            label: "Left Channel";
+                            label: Theme.left-channel-text;
                         }
 
                         left_output_channel := ChannelSelector {
@@ -125,7 +128,7 @@ export component AppWindow inherits Window {
 
                         Label {
                             horizontal-alignment: center;
-                            label: "Audio Device";
+                            label: Theme.device-header-text;
                         }
 
                         output_device := DeviceSelector {
@@ -152,7 +155,7 @@ export component AppWindow inherits Window {
                         padding: 10px;
 
                         Label {
-                            label: "Right Channel";
+                            label: Theme.right-channel-text;
                         }
 
                         right_output_channel := ChannelSelector {
@@ -185,20 +188,20 @@ export component AppWindow inherits Window {
                 alignment: space-around;
 
                 Label {
-                    text: "Left";
+                    text: Theme.left_box_label;
                     width: left_level_box.width;
                     horizontal-alignment: center;
                     font-size: Theme.heading-size;
                 }
 
                 Label {
-                    text: "Delta From Reference Tone Level";
+                    text: Theme.reference-tone-label;
                     horizontal-alignment: center;
                     font-size: Theme.heading-size;
                 }
 
                 Label {
-                    text: "Right";
+                    text: Theme.right_box_label;
                     width: left_level_box.width;
                     horizontal-alignment: center;
                     font-size: Theme.heading-size;
@@ -214,7 +217,12 @@ export component AppWindow inherits Window {
 
                 VerticalLayout {
                     alignment: start;
-                    ReferenceFrequency { }
+                    ReferenceFrequency {
+                        reference_frequency: root.reference_frequency;
+                        frequency_changed(frequency) => {
+                            root.frequency_changed(frequency);
+                        }
+                    }
 
                     delta_mode_switch := DeltaModeSwitch {
                         delta_mode_checked(checked) => {

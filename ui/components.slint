@@ -1,4 +1,4 @@
-import { ComboBox, Button, GridBox, Switch, StandardButton, Slider, SpinBox } from "std-widgets.slint";
+import { ComboBox, Button, GridBox, Switch, StandardButton, Slider, SpinBox} from "std-widgets.slint";
 import { Theme } from "../ui/theme.slint";
 
 
@@ -54,10 +54,8 @@ export component DeviceSelector inherits Rectangle {
     callback selected_device(string);
 
     HorizontalLayout {
-        spacing: 10px;
-
+        spacing: 8px;
         selector := ComboBox {
-            min-width: 275px;
             model: device_list;
             height: Theme.combobox-height;
             current-value: current;
@@ -93,42 +91,37 @@ export component ChannelSelector inherits Rectangle {
     }
 }
 
-export component Line inherits Rectangle {
-    in property <length> length;
-    background: Theme.text-color;
-    width: 100%;
-    height: 1px;
-    opacity: 50%;
+export component Horizontal-Bar inherits Rectangle {
+
+    in-out property <length> bar-width: 100px;
+
+    VerticalLayout {
+        Rectangle {
+            height: 2px;
+        }
+
+        Rectangle {
+            width: root.bar-width;
+            background: Theme.text-color;
+            height: 2px;
+        }
+
+        Rectangle {
+            height: 2px;
+        }
+    }
 }
 
 export component ReferenceFrequency inherits Rectangle {
     height: Theme.reference-box-height;
     width: Theme.reference-box-width;
-    callback frequency_changed(float);
+    callback tone_changed(float, int);
     in-out property <float> reference_frequency;
+    in-out property <int> reference_level;
 
     HorizontalLayout {
-        alignment: space-around;
+        alignment: center;
         GridLayout {
-            Row {
-                Text {
-                    colspan: 2;
-                    text: Theme.reference-tone-header-text;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    font-size: Theme.heading-size;
-                    font-weight: Theme.text-weight-bold;
-                    color: Theme.text-color;
-                }
-            }
-
-            Row {
-                Rectangle {
-                    colspan: 2;
-                    background: Theme.text-color;
-                    height: 2px;
-                }
-            }
 
             Row {
 
@@ -150,9 +143,8 @@ export component ReferenceFrequency inherits Rectangle {
                     maximum: Theme.frequency-maximum;
                     step-size: Theme.frequency-step-size;
                     value: reference_frequency;
-
                     edited(frequency) => {
-                        root.frequency_changed(frequency);
+                        root.tone_changed(frequency, level_spinbox.value);
                     }
                 }
             }
@@ -166,26 +158,27 @@ export component ReferenceFrequency inherits Rectangle {
 
             Row {
                 Text {
+                    colspan: 2;
                     vertical-alignment: center;
+                    horizontal-alignment: center;
                     text: Theme.output-level-label;
                     font-size: Theme.label-size;
                     font-weight: 900;
                     color: Theme.text-color;
                 }
-
-                Text {
-                    vertical-alignment: center;
-                    text: "-12 dbfs";
-                    font-size: Theme.label-size;
-                    color: Theme.text-color;
-                }
             }
 
             Row {
-                Rectangle {
+                level_spinbox := SpinBox {
                     colspan: 2;
-                    background: Theme.text-color;
-                    height: 2px;
+                    minimum: Theme.level-minimum;
+                    maximum: Theme.level-maximum;
+                    step-size: Theme.level-step-size;
+                    value: reference_level;
+
+                    edited(level) => {
+                        root.tone_changed(frequency_spinbox.value, level);
+                    }
                 }
             }
         }
@@ -309,6 +302,75 @@ export component Error inherits Dialog {
                             root.fatal_error_clicked();
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+export component AboutPopUp inherits PopupWindow {
+
+    in property <string> version;
+    x: Theme.about-popup-x;
+    y: Theme.about-popup-y;
+
+    height: Theme.about-popup-height;
+    width: Theme.about-popup-width;
+
+    Rectangle {
+        height: 100%;
+        width: 100%;
+        background: Theme.about-popup-background;
+        border-width: Theme.about-popup-border-width;
+        border-radius: Theme.about-popup-border-radius;
+        border-color: Theme.about-popup-border-color;
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        VerticalLayout {
+            spacing: 8px;
+            padding: 20px;
+
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    source: @image-url("../icon/sug_icon.svg");
+                    width: 60px;
+                    height: 60px;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                Label {
+                    text: Theme.about-popup-title;
+                    font-size: Theme.heading-size;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                Label {
+                    text: Theme.about-popup-description;
+                    font-size: Theme.text-size;
+                    wrap: word-wrap;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                Label {
+                    text: Theme.about-popup-license;
+                    font-size: Theme.text-size;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                Label {
+                    text: Theme.about-popup-version + version;
+                    font-size: Theme.text-size;
                 }
             }
         }

@@ -9,17 +9,26 @@ use std::process::exit;
 
 mod sine;
 
-const ERROR_MESSAGE_OUTPUT_STREAM_ERROR: &str = "Output Stream error!";
+const ERROR_MESSAGE_OUTPUT_STREAM_ERROR: &str = "Output Stream Error!";
 const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
+const DEFAULT_REFERENCE_LEVEL: i32 = -18;
+
+#[derive(Debug, Clone)]
+pub struct ToneParameters {
+    pub frequency: f32,
+    pub level: i32,
+}
 
 pub struct ToneGenerator {
     output_device: Device,
     output_stream: Stream,
     current_output_device: CurrentDevice,
     output_device_list: DeviceList,
-    reference_frequency_receiver: Receiver<f32>,
-    reference_frequency_sender: Sender<f32>,
-    reference_frequency: f32,
+    reference_tone_receiver: Receiver<ToneParameters>,
+    reference_tone_sender: Sender<ToneParameters>,
+    reference_level_receiver: Receiver<i32>,
+    reference_level_sender: Sender<i32>,
+    reference_tone: ToneParameters,
 }
 
 impl ToneGenerator {
@@ -28,12 +37,12 @@ impl ToneGenerator {
 
         let output_device_list = get_output_device_list_from_host(&host)?;
 
-        let default_output_device = host
+        let output_device = host
             .default_output_device()
             .ok_or(LocalError::NoDefaultOutputDevice)?;
 
         let current_output_device = get_default_device_data_from_output_device(
-            &default_output_device,
+            &output_device,
             &output_device_list.devices,
         )?;
 
@@ -43,30 +52,42 @@ impl ToneGenerator {
                 &current_output_device.right_channel,
             )?;
 
-        let (frequency_sender, frequency_receiver) = unbounded();
-        let reference_frequency_receiver = frequency_receiver.clone();
-        let reference_frequency_sender = frequency_sender;
+        let (tone_parameter_sender, tone_parameter_receiver) = unbounded();
+        let reference_tone_receiver = tone_parameter_receiver.clone();
+        let reference_tone_sender = tone_parameter_sender;
+
+        let (level_sender, level_receiver) = unbounded();
+        let reference_level_receiver = level_receiver.clone();
+        let reference_level_sender = level_sender;
 
         let reference_frequency = DEFAULT_REFERENCE_FREQUENCY;
+        let reference_level = DEFAULT_REFERENCE_LEVEL;
+
+        let reference_tone = ToneParameters {
+            frequency: reference_frequency,
+            level: reference_level,
+        };
 
         let output_stream = create_output_steam(
-            &default_output_device,
+            &output_device,
             left_output_channel_index,
             right_output_channel_index,
-            reference_frequency,
-            frequency_receiver,
+            tone_parameter_receiver,
+            &reference_tone,
         )?;
 
         output_stream.pause()?;
 
         Ok(Self {
-            output_device: default_output_device,
+            output_device,
             output_stream,
             current_output_device,
             output_device_list,
-            reference_frequency_receiver,
-            reference_frequency_sender,
-            reference_frequency,
+            reference_tone_receiver,
+            reference_tone_sender,
+            reference_level_receiver,
+            reference_level_sender,
+            reference_tone,
         })
     }
 
@@ -84,12 +105,24 @@ impl ToneGenerator {
         Ok(())
     }
 
-    pub fn get_reference_frequency(&self) -> f32 {
-        self.reference_frequency
+    pub fn get_reference_tone_parameters(&self) -> ToneParameters {
+        self.reference_tone.clone()
     }
 
-    pub fn get_frequency_sender(&self) -> Sender<f32> {
-        self.reference_frequency_sender.clone()
+    pub fn get_reference_tone_receiver(&self) -> Receiver<ToneParameters> {
+        self.reference_tone_receiver.clone()
+    }
+
+    pub fn get_reference_tone_sender(&self) -> Sender<ToneParameters> {
+        self.reference_tone_sender.clone()
+    }
+
+    pub fn get_reference_level_receiver(&self) -> Receiver<i32> {
+        self.reference_level_receiver.clone()
+    }
+
+    pub fn get_reference_level_sender(&self) -> Sender<i32> {
+        self.reference_level_sender.clone()
     }
 
     pub fn get_output_device_list(&self) -> DeviceList {
@@ -104,8 +137,8 @@ impl ToneGenerator {
         self.output_device_list.channels[self.current_output_device.index as usize].clone()
     }
 
-    pub fn set_reference_frequency_on_ui_callback(&mut self, reference_frequency: f32) {
-        self.reference_frequency = reference_frequency;
+    pub fn set_reference_tone_on_ui_callback(&mut self, reference_tone: &ToneParameters) {
+        self.reference_tone = reference_tone.clone();
     }
 
     pub fn set_output_device_on_ui_callback(
@@ -169,8 +202,8 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
-            self.reference_frequency,
-            self.reference_frequency_receiver.clone(),
+            self.reference_tone_receiver.clone(),
+            &self.reference_tone,
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -195,8 +228,8 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
-            self.reference_frequency,
-            self.reference_frequency_receiver.clone(),
+            self.reference_tone_receiver.clone(),
+            &self.reference_tone,
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -249,8 +282,8 @@ fn create_output_steam(
     device: &Device,
     left_channel_index: usize,
     right_channel_index: Option<usize>,
-    mut reference_frequency: f32,
-    reference_frequency_receiver: Receiver<f32>,
+    reference_tone_receiver: Receiver<ToneParameters>,
+    reference_tone: &ToneParameters,
 ) -> Result<Stream, LocalError> {
     let config_result = device
         .default_output_config()
@@ -260,17 +293,23 @@ fn create_output_steam(
     let number_of_channels = stream_config.channels;
     let sample_rate = stream_config.sample_rate.0 as f32;
     let mut wave = Sine::new(sample_rate);
+    let reference_level = reference_tone.level;
+    let mut reference_frequency = reference_tone.frequency;
+    let mut dbfs_adjustment_factor = get_dbfs_adjustment_factor_from_level(reference_level);
 
     device
         .build_output_stream(
             &stream_config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                if let Ok(frequency) = reference_frequency_receiver.try_recv() {
-                    reference_frequency = frequency;
+                if let Ok(reference_tone) = reference_tone_receiver.try_recv() {
+                    reference_frequency = reference_tone.frequency;
+                    dbfs_adjustment_factor =
+                        get_dbfs_adjustment_factor_from_level(reference_tone.level);
                 }
 
                 for channels in data.chunks_mut(number_of_channels as usize) {
-                    let tone_sample = wave.generate_tone_sample(reference_frequency);
+                    let tone_sample =
+                        wave.generate_tone_sample(reference_frequency, dbfs_adjustment_factor);
                     channels[left_channel_index] = tone_sample;
                     if let Some(index) = right_channel_index {
                         channels[index] = tone_sample;
@@ -340,4 +379,8 @@ fn get_channel_list_from_output_device(device: &Device) -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+fn get_dbfs_adjustment_factor_from_level(level: i32) -> f32 {
+    10.0_f32.powf(level as f32 / 20.0)
 }

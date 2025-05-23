@@ -1,5 +1,6 @@
 use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
 use crate::errors::{LocalError, EXIT_CODE_ERROR};
+use crate::tone_generator::ToneParameters;
 use crate::ui::AppWindow;
 use cpal::traits::*;
 use cpal::{default_host, Device, Host, Stream};
@@ -11,7 +12,6 @@ use std::thread;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
 const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
-const TARGET_OUTPUT_LEVEL: f32 = -12.0;
 const DEFAULT_DELTA_MODE: bool = true;
 
 pub type ReaderState = bool;
@@ -243,7 +243,12 @@ impl LevelMeter {
         Ok(current_input_device)
     }
 
-    pub fn start_level_meter(&mut self, ui: Weak<AppWindow>) -> Result<(), Box<dyn Error>> {
+    pub fn start_level_meter(
+        &mut self,
+        ui: Weak<AppWindow>,
+        reference_tone: ToneParameters,
+        reference_level_receiver: Receiver<i32>,
+    ) -> Result<(), Box<dyn Error>> {
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut last_left_peak = 0.0;
@@ -251,6 +256,7 @@ impl LevelMeter {
         let mut delta_mode = DEFAULT_DELTA_MODE;
         let sample_receiver = self.sample_buffer_receiver.clone();
         let mode_receiver = self.meter_mode_receiver.clone();
+        let mut refence_level = reference_tone.level as f32;
 
         let ui_weak = ui;
 
@@ -259,6 +265,10 @@ impl LevelMeter {
                 if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
                     delta_mode = delta_mode_enabled;
                 };
+
+                if let Ok(reference_level) = reference_level_receiver.try_recv() {
+                    refence_level = reference_level as f32;
+                }
 
                 if left_input_buffer_collection.len()
                     > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
@@ -287,8 +297,8 @@ impl LevelMeter {
                         last_right_peak = right;
 
                         if delta_mode {
-                            left -= TARGET_OUTPUT_LEVEL;
-                            right -= TARGET_OUTPUT_LEVEL;
+                            left -= refence_level;
+                            right -= refence_level;
                         }
 
                         let left_formatted = format_peak_delta_values_for_display(left);

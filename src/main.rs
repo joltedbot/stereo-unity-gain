@@ -4,7 +4,7 @@ pub mod level_meter;
 pub mod tone_generator;
 mod ui;
 
-use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
+use crate::errors::{handle_local_error, LocalError, EXIT_CODE_ERROR};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
 use crate::ui::UI;
@@ -36,13 +36,20 @@ fn main() -> Result<(), slint::PlatformError> {
         level_meter.get_current_input_device(),
         tone_generator.get_output_device_list(),
         tone_generator.get_current_output_device(),
-        tone_generator.get_reference_frequency(),
+        tone_generator.get_reference_tone_parameters(),
     ) {
         handle_local_error(LocalError::UIInitialization, err.to_string());
         exit(EXIT_CODE_ERROR);
     };
 
-    if let Err(err) = level_meter.start_level_meter(ui.ui.as_weak()) {
+    let current_reference_tone = tone_generator.get_reference_tone_parameters();
+    let reference_level_receiver = tone_generator.get_reference_level_receiver();
+
+    if let Err(err) = level_meter.start_level_meter(
+        ui.ui.as_weak(),
+        current_reference_tone,
+        reference_level_receiver,
+    ) {
         handle_local_error(LocalError::MeterReaderUIUpdater, err.to_string());
         exit(EXIT_CODE_ERROR);
     };

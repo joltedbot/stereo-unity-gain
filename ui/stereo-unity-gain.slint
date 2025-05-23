@@ -1,16 +1,19 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, DeltaModeSwitch} from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, DeltaModeSwitch, AboutPopUp} from "../ui/components.slint";
 import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
 
 export component AppWindow inherits Window {
+    in property <image> logo: @image-url("../icon/sug_icon.svg");
+    icon: logo;
     title: "Stereo Unity Gain";
     min-width: Theme.window-width;
     min-height: Theme.window-height;
     default-font-size: Theme.text-size;
     background: transparent;
 
+    in property <string> version_number;
     in-out property <[string]> input_device_list;
     in-out property <string> current_input_device;
     in-out property <[string]> output_device_list;
@@ -38,12 +41,33 @@ export component AppWindow inherits Window {
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
 
-    callback frequency_changed(float);
+    callback reference_tone_changed(float, int);
     in-out property <float> reference_frequency;
+    in-out property <int> reference_level;
 
     in-out property <bool> error-dialog-visible: false;
     in-out property <string> error-message;
     callback close-error-dialog();
+
+    function about-popup() {
+        popup.show();
+    }
+
+    MenuBar {
+        Menu {
+            title: @tr("help");
+            MenuItem {
+                title: @tr("about");
+                activated => {
+                    about-popup();
+                }
+            }
+        }
+    }
+
+    popup := AboutPopUp {
+        version: root.version_number;
+    }
 
     Error {
         message: error-message;
@@ -222,11 +246,11 @@ export component AppWindow inherits Window {
                 }
 
                 VerticalLayout {
-                    alignment: start;
                     ReferenceFrequency {
                         reference_frequency: root.reference_frequency;
-                        frequency_changed(frequency) => {
-                            root.frequency_changed(frequency);
+                        reference_level: root.reference_level;
+                        tone_changed(frequency, level) => {
+                            root.reference_tone_changed(frequency, level);
                         }
                     }
 

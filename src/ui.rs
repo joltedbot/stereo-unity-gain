@@ -1,14 +1,15 @@
 use crate::devices::{CurrentDevice, DeviceList};
 use crate::level_meter::LevelMeter;
-use crate::tone_generator::ToneGenerator;
+use crate::tone_generator::{ToneGenerator, ToneParameters};
 use slint::{ModelRc, PlatformError, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
-slint::include_modules!();
-
 const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
     "A fatal error has occurred in the UI. The application will now exit.";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+slint::include_modules!();
 
 pub struct UI {
     pub ui: AppWindow,
@@ -33,8 +34,11 @@ impl UI {
         current_input_device: CurrentDevice,
         output_device_list: DeviceList,
         current_output_device: CurrentDevice,
-        reference_frequency: f32,
+        reference_tone: ToneParameters,
     ) -> Result<(), Box<dyn Error>> {
+        self.ui
+            .set_version_number(SharedString::from(VERSION.to_string()));
+
         self.ui
             .set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
         self.ui
@@ -48,7 +52,8 @@ impl UI {
             &output_device_list.channels[current_output_device.index as usize].clone(),
         ));
 
-        self.ui.set_reference_frequency(reference_frequency);
+        self.ui.set_reference_frequency(reference_tone.frequency);
+        self.ui.set_reference_level(reference_tone.level);
 
         self.ui
             .set_current_output_device(SharedString::from(current_output_device.name.clone()));
@@ -102,7 +107,7 @@ impl UI {
         );
         self.on_delta_mode_switch_toggled_callback(input_device_mutex.clone());
 
-        self.on_reference_frequency_changed_callback(output_device_mutex.clone());
+        self.on_reference_tone_changed_callback(output_device_mutex.clone());
     }
 
     pub fn on_start_button_pressed_callback(
@@ -286,25 +291,30 @@ impl UI {
             });
     }
 
-    fn on_reference_frequency_changed_callback(
-        &self,
-        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
-    ) {
+    fn on_reference_tone_changed_callback(&self, output_devices_mutex: Arc<Mutex<ToneGenerator>>) {
         let ui_weak = self.ui.as_weak();
 
-        self.ui
-            .on_frequency_changed(move |frequency| match output_devices_mutex.lock() {
+        self.ui.on_reference_tone_changed(move |frequency, level| {
+            match output_devices_mutex.lock() {
                 Ok(mut tone_generator) => {
-                    tone_generator.set_reference_frequency_on_ui_callback(frequency);
-                    let frequency_sender = tone_generator.get_frequency_sender();
-                    if let Err(error) = frequency_sender.send(frequency) {
+                    let reference_tone = ToneParameters { frequency, level };
+                    tone_generator.set_reference_tone_on_ui_callback(&reference_tone);
+
+                    let reference_tone_receiver = tone_generator.get_reference_tone_sender();
+                    if let Err(error) = reference_tone_receiver.send(reference_tone) {
+                        handle_ui_error(&ui_weak, &error.to_string());
+                    }
+
+                    let reference_level_sender = tone_generator.get_reference_level_sender();
+                    if let Err(error) = reference_level_sender.send(level) {
                         handle_ui_error(&ui_weak, &error.to_string());
                     }
                 }
                 Err(error) => {
                     handle_ui_error(&ui_weak, &error.to_string());
                 }
-            });
+            }
+        });
     }
 
     pub fn on_delta_mode_switch_toggled_callback(

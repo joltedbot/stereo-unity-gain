@@ -4,15 +4,16 @@ export global Theme {
     out property <string> start_button_running: "Stop";
     out property <string> start_button_stopped: "Start";
 
-    out property <string> reference-tone-label: "Delta From Reference Tone Level";
+    out property <string> reference-tone-label: "Reference Tone";
     out property <string> reference-tone-header-text: "Reference Tone";
     out property <string> left-channel-text: "Left Channel";
     out property <string> device-header-text: "Audio Device";
     out property <string> right-channel-text: "Right Channel";
-    out property <string> left_box_label: "Left";
-    out property <string> right_box_label: "Right";
-    out property <string> output-level-label: "Output Level: ";
+    out property <string> left_box_label: "Left Level";
+    out property <string> right_box_label: "Right Level";
+    out property <string> output-level-label: "Output Level (peak dbfs)";
     out property <string> output-frequency-label: "Frequency Hz";
+    out property <string> version-text: "version: ";
 
     out property <length> window-width: 1000px;
     out property <length> window-height: 400px;
@@ -57,9 +58,26 @@ export global Theme {
     out property <int> frequency-maximum: 20000;
     out property <int> frequency-step-size: 100;
 
+    out property <int> level-minimum: -30;
+    out property <int> level-maximum: 0;
+    out property <int> level-step-size: 1;
+
     out property <color> error-text-color: #992222;
     out property <string> error-dialog-title: "Fatal Error";
     out property <length> error-dialog-width: 400px;
     out property <length> error-dialog-height: 250px;
     out property <length> error-button-wdith: 100px;
+
+    out property <string> about-popup-title: "Stereo Unity Gain";
+    out property <string> about-popup-description: "A simple tool intended to help set the level for stereo pairs of inputs your audio interface";
+    out property <string> about-popup-license: "License: Apache 2.0";
+    out property <string> about-popup-version: "Version: ";
+    out property <color> about-popup-background: window-background.brighter(0.4);
+    out property <length> about-popup-border-width: window-border-width;
+    out property <length> about-popup-border-radius: border-radius;
+    out property <color> about-popup-border-color: border-colour;
+    out property <length> about-popup-width: 300px;
+    out property <length> about-popup-height: 300px;
+    out property <length> about-popup-x: (window-width / 2) - (about-popup-width / 2);
+    out property <length> about-popup-y: (window-height / 2) - (about-popup-height / 2);
 }

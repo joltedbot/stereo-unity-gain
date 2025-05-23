@@ -154,9 +154,7 @@ impl UI {
             if let Ok(mut input_device) = input_device_mutex.lock() {
                 let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
 
-                match input_device
-                    .set_current_input_device_on_ui_callback((index, device.to_string()))
-                {
+                match input_device.set_input_device_on_ui_callback((index, device.to_string())) {
                     Ok(_) => {
                         let current_input_device = input_device.get_current_input_device();
                         let input_device_list = get_model_from_string_slice(
@@ -197,9 +195,7 @@ impl UI {
             if let Ok(mut output_device) = output_devices_mutex.lock() {
                 let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
 
-                match output_device
-                    .set_current_output_device_on_ui_callback((index, device.to_string()))
-                {
+                match output_device.set_output_device_on_ui_callback((index, device.to_string())) {
                     Ok(_) => {
                         let current_output_device = output_device.get_current_output_device();
                         let output_device_list = get_model_from_string_slice(

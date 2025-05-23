@@ -108,16 +108,17 @@ impl ToneGenerator {
         self.reference_frequency = reference_frequency;
     }
 
-    pub fn set_current_output_device_on_ui_callback(
+    pub fn set_output_device_on_ui_callback(
         &mut self,
         output_device_data: (i32, String),
     ) -> Result<(), LocalError> {
         self.stop()?;
-        self.set_output_device_on_ui_callback(output_device_data)
+
+        self.update_current_output_device(output_device_data)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
     }
 
-    pub fn set_output_device_on_ui_callback(
+    pub fn update_current_output_device(
         &mut self,
         output_device_data: (i32, String),
     ) -> Result<(), LocalError> {
@@ -151,6 +152,8 @@ impl ToneGenerator {
         left_output_channel: String,
         right_output_channel: Option<String>,
     ) -> Result<(), LocalError> {
+        self.stop()?;
+
         self.current_output_device.left_channel = left_output_channel;
         self.current_output_device.right_channel = right_output_channel;
 

@@ -102,16 +102,16 @@ impl LevelMeter {
         self.input_device_list.channels[self.current_input_device.index as usize].clone()
     }
 
-    pub fn set_current_input_device_on_ui_callback(
+    pub fn set_input_device_on_ui_callback(
         &mut self,
         input_device_data: (i32, String),
     ) -> Result<(), LocalError> {
         self.stop()?;
-        self.set_input_device_on_ui_callback(input_device_data)
+        self.update_current_input_device(input_device_data)
             .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
     }
 
-    pub fn set_input_device_on_ui_callback(
+    pub fn update_current_input_device(
         &mut self,
         input_device_data: (i32, String),
     ) -> Result<(), LocalError> {
@@ -143,6 +143,8 @@ impl LevelMeter {
         left_input_channel: String,
         right_input_channel: Option<String>,
     ) -> Result<(), LocalError> {
+        self.stop()?;
+
         self.current_input_device.left_channel = left_input_channel;
         self.current_input_device.right_channel = right_input_channel;
 

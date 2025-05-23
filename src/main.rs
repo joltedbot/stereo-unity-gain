@@ -4,7 +4,7 @@ pub mod level_meter;
 pub mod tone_generator;
 mod ui;
 
-use crate::errors::{handle_local_error, LocalError, EXIT_CODE_ERROR};
+use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
 use crate::ui::UI;

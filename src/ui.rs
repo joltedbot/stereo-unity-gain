@@ -1,6 +1,8 @@
 use crate::devices::{CurrentDevice, DeviceList};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::{ToneGenerator, ToneParameters};
+use crate::ui::EventType::MeterModeUpdate;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use slint::{ModelRc, PlatformError, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -11,14 +13,38 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 slint::include_modules!();
 
+#[derive(Debug, Clone)]
+pub enum EventType {
+    MeterLevelUpdate { left: String, right: String },
+    MeterModeUpdate(bool),
+    ToneFrequencyUpdate(f32),
+    ToneLevelUpdate(i32),
+}
+
 pub struct UI {
     pub ui: AppWindow,
+    level_meter_receiver: Receiver<EventType>,
+    level_meter_sender: Sender<EventType>,
+    tone_generator_receiver: Receiver<EventType>,
+    tone_generator_sender: Sender<EventType>,
 }
 
 impl UI {
     pub fn new() -> Result<Self, PlatformError> {
+        let (meter_sender, meter_receiver) = unbounded();
+        let level_meter_receiver = meter_receiver.clone();
+        let level_meter_sender = meter_sender;
+
+        let (tone_sender, tone_receiver) = unbounded();
+        let tone_generator_receiver = tone_receiver.clone();
+        let tone_generator_sender = tone_sender;
+
         let ui = Self {
             ui: AppWindow::new()?,
+            level_meter_receiver,
+            level_meter_sender,
+            tone_generator_receiver,
+            tone_generator_sender,
         };
         ui.setup_error_handling();
         Ok(ui)
@@ -26,6 +52,14 @@ impl UI {
 
     pub fn run(&mut self) -> Result<(), PlatformError> {
         self.ui.run()
+    }
+
+    pub fn get_level_meter_receiver(&self) -> Receiver<EventType> {
+        self.level_meter_receiver.clone()
+    }
+
+    pub fn get_tone_generator_receiver(&self) -> Receiver<EventType> {
+        self.tone_generator_receiver.clone()
     }
 
     pub fn initialize_ui_with_device_data(
@@ -105,9 +139,10 @@ impl UI {
             input_device_mutex.clone(),
             output_device_mutex.clone(),
         );
-        self.on_delta_mode_switch_toggled_callback(input_device_mutex.clone());
+        self.on_delta_mode_switch_toggled_callback();
 
-        self.on_reference_tone_changed_callback(output_device_mutex.clone());
+        self.on_reference_frequency_changed_callback(output_device_mutex.clone());
+        self.on_reference_level_changed_callback(output_device_mutex.clone());
     }
 
     pub fn on_start_button_pressed_callback(
@@ -291,50 +326,70 @@ impl UI {
             });
     }
 
-    fn on_reference_tone_changed_callback(&self, output_devices_mutex: Arc<Mutex<ToneGenerator>>) {
+    fn on_reference_frequency_changed_callback(
+        &self,
+        output_devices_mutex: Arc<Mutex<ToneGenerator>>,
+    ) {
         let ui_weak = self.ui.as_weak();
+        let tone_generator_sender = self.tone_generator_sender.clone();
 
-        self.ui.on_reference_tone_changed(move |frequency, level| {
+        self.ui.on_reference_frequency_changed(move |frequency| {
             match output_devices_mutex.lock() {
                 Ok(mut tone_generator) => {
-                    let reference_tone = ToneParameters { frequency, level };
-                    tone_generator.set_reference_tone_on_ui_callback(&reference_tone);
-
-                    let reference_tone_receiver = tone_generator.get_reference_tone_sender();
-                    if let Err(error) = reference_tone_receiver.send(reference_tone) {
-                        handle_ui_error(&ui_weak, &error.to_string());
-                    }
-
-                    let reference_level_sender = tone_generator.get_reference_level_sender();
-                    if let Err(error) = reference_level_sender.send(level) {
-                        handle_ui_error(&ui_weak, &error.to_string());
-                    }
+                    tone_generator.set_reference_tone_on_ui_callback(&ToneParameters {
+                        frequency: ui_weak.upgrade().unwrap().get_reference_frequency(),
+                        level: ui_weak.upgrade().unwrap().get_reference_level(),
+                    })
                 }
                 Err(error) => {
                     handle_ui_error(&ui_weak, &error.to_string());
                 }
             }
+
+            if let Err(error) =
+                tone_generator_sender.send(EventType::ToneFrequencyUpdate(frequency))
+            {
+                handle_ui_error(&ui_weak, &error.to_string());
+            }
         });
     }
 
-    pub fn on_delta_mode_switch_toggled_callback(
-        &self,
-        input_devices_mutex: Arc<Mutex<LevelMeter>>,
-    ) {
+    fn on_reference_level_changed_callback(&self, output_devices_mutex: Arc<Mutex<ToneGenerator>>) {
         let ui_weak = self.ui.as_weak();
+        let tone_generator_sender = self.tone_generator_sender.clone();
+        let level_meter_sender = self.level_meter_sender.clone();
 
-        self.ui
-            .on_delta_mode_checked(move |delta_mode_enabled| match input_devices_mutex.lock() {
-                Ok(mut device) => {
-                    let mode_sender = device.get_meter_mode_sender();
-                    if let Err(error) = mode_sender.send(delta_mode_enabled) {
-                        handle_ui_error(&ui_weak, &error.to_string());
-                    }
+        self.ui.on_reference_level_changed(move |level| {
+            match output_devices_mutex.lock() {
+                Ok(mut tone_generator) => {
+                    tone_generator.set_reference_tone_on_ui_callback(&ToneParameters {
+                        frequency: ui_weak.upgrade().unwrap().get_reference_frequency(),
+                        level: ui_weak.upgrade().unwrap().get_reference_level(),
+                    })
                 }
                 Err(error) => {
                     handle_ui_error(&ui_weak, &error.to_string());
                 }
-            });
+            }
+
+            if let Err(error) = tone_generator_sender.send(EventType::ToneLevelUpdate(level)) {
+                handle_ui_error(&ui_weak, &error.to_string());
+            }
+            if let Err(error) = level_meter_sender.send(EventType::ToneLevelUpdate(level)) {
+                handle_ui_error(&ui_weak, &error.to_string());
+            }
+        });
+    }
+
+    pub fn on_delta_mode_switch_toggled_callback(&self) {
+        let ui_weak = self.ui.as_weak();
+        let level_meter_sender = self.level_meter_sender.clone();
+
+        self.ui.on_delta_mode_checked(move |delta_mode_enabled| {
+            if let Err(error) = level_meter_sender.send(MeterModeUpdate(delta_mode_enabled)) {
+                handle_ui_error(&ui_weak, &error.to_string());
+            }
+        });
     }
 
     fn setup_error_handling(&self) {

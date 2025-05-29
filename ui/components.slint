@@ -115,7 +115,8 @@ export component Horizontal-Bar inherits Rectangle {
 export component ReferenceFrequency inherits Rectangle {
     height: Theme.reference-box-height;
     width: Theme.reference-box-width;
-    callback tone_changed(float, int);
+    callback frequency_changed(float);
+    callback level_changed(int);
     in-out property <float> reference_frequency;
     in-out property <int> reference_level;
 
@@ -144,7 +145,7 @@ export component ReferenceFrequency inherits Rectangle {
                     step-size: Theme.frequency-step-size;
                     value: reference_frequency;
                     edited(frequency) => {
-                        root.tone_changed(frequency, level_spinbox.value);
+                        root.frequency_changed(frequency);
                     }
                 }
             }
@@ -177,7 +178,7 @@ export component ReferenceFrequency inherits Rectangle {
                     value: reference_level;
 
                     edited(level) => {
-                        root.tone_changed(frequency_spinbox.value, level);
+                        root.level_changed(level);
                     }
                 }
             }

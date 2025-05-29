@@ -41,7 +41,8 @@ export component AppWindow inherits Window {
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
 
-    callback reference_tone_changed(float, int);
+    callback reference_frequency_changed(float);
+    callback reference_level_changed(int);
     in-out property <float> reference_frequency;
     in-out property <int> reference_level;
 
@@ -249,8 +250,11 @@ export component AppWindow inherits Window {
                     ReferenceFrequency {
                         reference_frequency: root.reference_frequency;
                         reference_level: root.reference_level;
-                        tone_changed(frequency, level) => {
-                            root.reference_tone_changed(frequency, level);
+                        frequency_changed(frequency) => {
+                            root.reference_frequency_changed(frequency);
+                        }
+                        level_changed(level) => {
+                            root.reference_level_changed(level);
                         }
                     }
 

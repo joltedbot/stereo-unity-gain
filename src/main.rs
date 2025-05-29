@@ -4,7 +4,7 @@ pub mod level_meter;
 pub mod tone_generator;
 mod ui;
 
-use crate::errors::{handle_local_error, LocalError, EXIT_CODE_ERROR};
+use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
 use crate::ui::UI;
@@ -13,7 +13,9 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), slint::PlatformError> {
-    let tone_generator = match ToneGenerator::new() {
+    let mut ui = UI::new()?;
+
+    let tone_generator = match ToneGenerator::new(ui.get_tone_generator_receiver()) {
         Ok(tone_generator) => tone_generator,
         Err(error) => {
             handle_local_error(LocalError::ToneGeneratorInitialization, error.to_string());
@@ -21,15 +23,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
-    let mut level_meter = match LevelMeter::new() {
+    let mut level_meter = match LevelMeter::new(ui.get_level_meter_receiver()) {
         Ok(level_meter) => level_meter,
         Err(error) => {
             handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     };
-
-    let mut ui = UI::new()?;
 
     if let Err(err) = ui.initialize_ui_with_device_data(
         level_meter.get_input_device_list(),
@@ -43,13 +43,8 @@ fn main() -> Result<(), slint::PlatformError> {
     };
 
     let current_reference_tone = tone_generator.get_reference_tone_parameters();
-    let reference_level_receiver = tone_generator.get_reference_level_receiver();
 
-    if let Err(err) = level_meter.start_level_meter(
-        ui.ui.as_weak(),
-        current_reference_tone,
-        reference_level_receiver,
-    ) {
+    if let Err(err) = level_meter.start_level_meter(ui.ui.as_weak(), current_reference_tone) {
         handle_local_error(LocalError::MeterReaderUIUpdater, err.to_string());
         exit(EXIT_CODE_ERROR);
     };

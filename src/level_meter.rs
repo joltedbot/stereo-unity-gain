@@ -1,34 +1,39 @@
-use crate::devices::{get_channel_indexes_from_channel_names, CurrentDevice, DeviceList};
-use crate::errors::{LocalError, EXIT_CODE_ERROR};
+use crate::devices::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
+use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::tone_generator::ToneParameters;
-use crate::ui::AppWindow;
+use crate::ui::{AppWindow, EventType};
 use cpal::traits::*;
-use cpal::{default_host, Device, Host, Stream};
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use cpal::{Device, Host, Stream, default_host};
+use crossbeam_channel::Receiver;
+use rtrb::{Consumer, Producer, RingBuffer};
 use slint::{SharedString, Weak};
 use std::error::Error;
 use std::process::exit;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
-const NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION: usize = 20;
+const INPUT_BUFFERS_FOR_PEAK_CALCULATION: usize = 20;
 const DEFAULT_DELTA_MODE: bool = true;
+const RING_BUFFER_SIZE: usize = 1024;
 
-pub type ReaderState = bool;
+struct SampleFrameBuffer {
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
 
 pub struct LevelMeter {
     input_device: Device,
     input_stream: Stream,
     current_input_device: CurrentDevice,
     input_device_list: DeviceList,
-    sample_buffer_receiver: Receiver<(Vec<f32>, Vec<f32>)>,
-    sample_buffer_sender: Sender<(Vec<f32>, Vec<f32>)>,
-    meter_mode_receiver: Receiver<ReaderState>,
-    meter_mode_sender: Sender<ReaderState>,
+    sample_consumer: Arc<Mutex<Consumer<SampleFrameBuffer>>>,
+    sample_producer: Arc<Mutex<Producer<SampleFrameBuffer>>>,
+    ui_command_receiver: Receiver<EventType>,
 }
 
 impl LevelMeter {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new(ui_command_receiver: Receiver<EventType>) -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
         let input_device_list = get_input_device_list_from_host(&host)?;
@@ -46,19 +51,14 @@ impl LevelMeter {
                 &current_input_device.right_channel,
             )?;
 
-        let (sample_sender, sample_receiver) = unbounded();
-        let sample_buffer_receiver = sample_receiver;
-        let sample_buffer_sender = sample_sender.clone();
-
-        let (mode_sender, mode_receiver) = unbounded();
-        let meter_mode_receiver = mode_receiver;
-        let meter_mode_sender = mode_sender;
+        let (sample_producer, sample_consumer) = RingBuffer::new(RING_BUFFER_SIZE);
+        let sample_producer_mutex = Arc::new(Mutex::new(sample_producer));
 
         let input_stream = create_input_stream(
             &input_device,
             left_input_channel_index,
             right_input_channel_index,
-            sample_sender,
+            sample_producer_mutex.clone(),
         )?;
 
         input_stream.pause()?;
@@ -66,10 +66,9 @@ impl LevelMeter {
         Ok(Self {
             input_device,
             input_stream,
-            sample_buffer_sender,
-            sample_buffer_receiver,
-            meter_mode_sender,
-            meter_mode_receiver,
+            sample_consumer: Arc::new(Mutex::new(sample_consumer)),
+            sample_producer: sample_producer_mutex,
+            ui_command_receiver,
             current_input_device,
             input_device_list,
         })
@@ -158,7 +157,7 @@ impl LevelMeter {
             &self.input_device,
             left_input_channel_index,
             right_input_channel_index,
-            self.sample_buffer_sender.clone(),
+            self.sample_producer.clone(),
         )
         .map_err(|err| LocalError::InputStream(err.to_string()))?;
 
@@ -183,7 +182,7 @@ impl LevelMeter {
             &self.input_device,
             left_input_channel_index,
             right_input_channel_index,
-            self.sample_buffer_sender.clone(),
+            self.sample_producer.clone(),
         )
         .map_err(|err| LocalError::InputStream(err.to_string()))?;
 
@@ -212,18 +211,6 @@ impl LevelMeter {
         }
     }
 
-    pub fn get_meter_mode_receiver(&mut self) -> Receiver<ReaderState> {
-        self.meter_mode_receiver.clone()
-    }
-
-    pub fn get_meter_mode_sender(&mut self) -> Sender<ReaderState> {
-        self.meter_mode_sender.clone()
-    }
-
-    pub fn get_sample_buffer_receiver(&mut self) -> Receiver<(Vec<f32>, Vec<f32>)> {
-        self.sample_buffer_receiver.clone()
-    }
-
     pub fn reset_to_default_input_device(&mut self) -> Result<CurrentDevice, LocalError> {
         self.stop()?;
 
@@ -247,72 +234,84 @@ impl LevelMeter {
         &mut self,
         ui: Weak<AppWindow>,
         reference_tone: ToneParameters,
-        reference_level_receiver: Receiver<i32>,
     ) -> Result<(), Box<dyn Error>> {
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut last_left_peak = 0.0;
         let mut last_right_peak = 0.0;
         let mut delta_mode = DEFAULT_DELTA_MODE;
-        let sample_receiver = self.sample_buffer_receiver.clone();
-        let mode_receiver = self.meter_mode_receiver.clone();
+        let sample_receiver_mutex = self.sample_consumer.clone();
+        let ui_command_receiver = self.ui_command_receiver.clone();
         let mut refence_level = reference_tone.level as f32;
 
         let ui_weak = ui;
 
         thread::spawn(move || {
-            while let Ok((left_samples, right_samples)) = sample_receiver.recv() {
-                if let Ok(delta_mode_enabled) = mode_receiver.try_recv() {
-                    delta_mode = delta_mode_enabled;
-                };
-
-                if let Ok(reference_level) = reference_level_receiver.try_recv() {
-                    refence_level = reference_level as f32;
+            let mut sample_receiver = match sample_receiver_mutex.lock() {
+                Ok(sample_receiver) => sample_receiver,
+                Err(err) => {
+                    eprintln!(
+                        "Level Meter Run: {}: {}",
+                        ERROR_MESSAGE_INPUT_STREAM_ERROR, err
+                    );
+                    exit(EXIT_CODE_ERROR);
                 }
+            };
 
-                if left_input_buffer_collection.len()
-                    > NUMBER_OF_INPUT_BUFFERS_TO_USE_FOR_PEAK_CALCULATION
-                {
-                    let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
-                        .iter()
-                        .flatten()
-                        .copied()
-                        .collect();
-
-                    left_input_buffer_collection.truncate(0);
-
-                    let mut right_samples_buffer: Vec<f32> = right_input_buffer_collection
-                        .iter()
-                        .flatten()
-                        .copied()
-                        .collect();
-
-                    right_input_buffer_collection.truncate(0);
-
-                    let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
-                    let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
-
-                    if last_left_peak != left || last_right_peak != right {
-                        last_left_peak = left;
-                        last_right_peak = right;
-
-                        if delta_mode {
-                            left -= refence_level;
-                            right -= refence_level;
+            while !sample_receiver.is_abandoned() {
+                while let Ok(command) = ui_command_receiver.try_recv() {
+                    match command {
+                        EventType::MeterModeUpdate(delta_mode_enabled) => {
+                            delta_mode = delta_mode_enabled
                         }
-
-                        let left_formatted = format_peak_delta_values_for_display(left);
-                        let right_formatted = format_peak_delta_values_for_display(right);
-
-                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_left_level_box_value(SharedString::from(left_formatted));
-                            ui.set_right_level_box_value(SharedString::from(right_formatted));
-                        });
+                        EventType::ToneLevelUpdate(level) => refence_level = level as f32,
+                        _ => (),
                     }
                 }
 
-                left_input_buffer_collection.insert(0, left_samples);
-                right_input_buffer_collection.insert(0, right_samples);
+                if let Ok(sample_buffers) = sample_receiver.pop() {
+                    if left_input_buffer_collection.len() > INPUT_BUFFERS_FOR_PEAK_CALCULATION {
+                        let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
+                            .iter()
+                            .flatten()
+                            .copied()
+                            .collect();
+
+                        left_input_buffer_collection.truncate(0);
+
+                        let mut right_samples_buffer: Vec<f32> = right_input_buffer_collection
+                            .iter()
+                            .flatten()
+                            .copied()
+                            .collect();
+
+                        right_input_buffer_collection.truncate(0);
+
+                        let mut left = get_peak_of_sine_wave_samples(&mut left_samples_buffer);
+                        let mut right = get_peak_of_sine_wave_samples(&mut right_samples_buffer);
+
+                        if last_left_peak != left || last_right_peak != right {
+                            last_left_peak = left;
+                            last_right_peak = right;
+
+                            if delta_mode {
+                                left -= refence_level;
+                                right -= refence_level;
+                            }
+
+                            let left_formatted = format_peak_delta_values_for_display(left);
+                            let right_formatted = format_peak_delta_values_for_display(right);
+
+                            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                                ui.set_left_level_box_value(SharedString::from(left_formatted));
+                                ui.set_right_level_box_value(SharedString::from(right_formatted));
+                            });
+                        }
+                    }
+
+                    left_input_buffer_collection.insert(0, sample_buffers.left);
+                    right_input_buffer_collection.insert(0, sample_buffers.right);
+                }
             }
         });
 
@@ -324,7 +323,7 @@ fn create_input_stream(
     device: &Device,
     left_channel_index: usize,
     right_channel_index: Option<usize>,
-    producer: Sender<(Vec<f32>, Vec<f32>)>,
+    sample_producer_mutex: Arc<Mutex<Producer<SampleFrameBuffer>>>,
 ) -> Result<Stream, LocalError> {
     let config_result = device
         .default_input_config()
@@ -349,9 +348,18 @@ fn create_input_stream(
                         }
                     });
 
-                if let Err(err) =
-                    producer.send((left_channel_samples.clone(), right_channel_samples.clone()))
-                {
+                let mut sample_producer = match sample_producer_mutex.lock() {
+                    Ok(sample_producer) => sample_producer,
+                    Err(err) => {
+                        eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
+                        exit(EXIT_CODE_ERROR);
+                    }
+                };
+
+                if let Err(err) = sample_producer.push(SampleFrameBuffer {
+                    left: left_channel_samples.clone(),
+                    right: right_channel_samples.clone(),
+                }) {
                     eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
                 }
 

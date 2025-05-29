@@ -312,6 +312,8 @@ export component Error inherits Dialog {
 export component AboutPopUp inherits PopupWindow {
 
     in property <string> version;
+    in property <string> description;
+    in property <string> license;
     x: Theme.about-popup-x;
     y: Theme.about-popup-y;
 
@@ -353,7 +355,7 @@ export component AboutPopUp inherits PopupWindow {
             HorizontalLayout {
                 alignment: center;
                 Label {
-                    text: Theme.about-popup-description;
+                    text: description;
                     font-size: Theme.text-size;
                     wrap: word-wrap;
                 }
@@ -362,7 +364,7 @@ export component AboutPopUp inherits PopupWindow {
             HorizontalLayout {
                 alignment: center;
                 Label {
-                    text: Theme.about-popup-license;
+                    text: Theme.about-popup-license + license;
                     font-size: Theme.text-size;
                 }
             }

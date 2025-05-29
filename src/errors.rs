@@ -2,7 +2,7 @@ use thiserror::Error;
 
 pub const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum LocalError {
     #[error("Error Initializing Tone Generator")]
     ToneGeneratorInitialization,
@@ -12,6 +12,9 @@ pub enum LocalError {
 
     #[error("Error Initializing User Interface")]
     UIInitialization,
+
+    #[error("Error Initializing Audio Devices")]
+    DeviceManagerInitialization,
 
     #[error("Could not initialize the meter reader UI process")]
     MeterReaderUIUpdater,

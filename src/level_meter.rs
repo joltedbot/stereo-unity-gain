@@ -1,6 +1,5 @@
-use crate::devices::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
-use crate::errors::{EXIT_CODE_ERROR, LocalError};
-use crate::tone_generator::ToneParameters;
+use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
+use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::ui::{AppWindow, EventType};
 use cpal::traits::*;
 use cpal::{Device, Host, Stream, default_host};
@@ -13,6 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
+const ERROR_MESSAGE_RUN_LOOP: &str =
+    "Could not reference shared data withing the Level Meter Run Loop!";
 const INPUT_BUFFERS_FOR_PEAK_CALCULATION: usize = 20;
 const DEFAULT_DELTA_MODE: bool = true;
 const RING_BUFFER_SIZE: usize = 1024;
@@ -29,11 +30,16 @@ pub struct LevelMeter {
     input_device_list: DeviceList,
     sample_consumer: Arc<Mutex<Consumer<SampleFrameBuffer>>>,
     sample_producer: Arc<Mutex<Producer<SampleFrameBuffer>>>,
+    delta_mode_enabled: Arc<Mutex<bool>>,
+    reference_level: Arc<Mutex<f32>>,
     ui_command_receiver: Receiver<EventType>,
 }
 
 impl LevelMeter {
-    pub fn new(ui_command_receiver: Receiver<EventType>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(
+        ui_command_receiver: Receiver<EventType>,
+        default_reference_level: f32,
+    ) -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
         let input_device_list = get_input_device_list_from_host(&host)?;
@@ -63,6 +69,10 @@ impl LevelMeter {
 
         input_stream.pause()?;
 
+        let default_delta_mode_enabled = DEFAULT_DELTA_MODE;
+        let delta_mode_enabled = Arc::new(Mutex::new(default_delta_mode_enabled));
+        let reference_level = Arc::new(Mutex::new(default_reference_level));
+
         Ok(Self {
             input_device,
             input_stream,
@@ -71,6 +81,8 @@ impl LevelMeter {
             ui_command_receiver,
             current_input_device,
             input_device_list,
+            delta_mode_enabled,
+            reference_level,
         })
     }
 
@@ -232,21 +244,29 @@ impl LevelMeter {
 
     pub fn start_level_meter(
         &mut self,
-        ui: Weak<AppWindow>,
-        reference_tone: ToneParameters,
+        ui_mutex: Arc<Mutex<Weak<AppWindow>>>,
     ) -> Result<(), Box<dyn Error>> {
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut last_left_peak = 0.0;
         let mut last_right_peak = 0.0;
-        let mut delta_mode = DEFAULT_DELTA_MODE;
         let sample_receiver_mutex = self.sample_consumer.clone();
-        let ui_command_receiver = self.ui_command_receiver.clone();
-        let mut refence_level = reference_tone.level as f32;
 
-        let ui_weak = ui;
+        let refence_level_arc = self.reference_level.clone();
+        let delta_mode_enabled_arc = self.delta_mode_enabled.clone();
 
         thread::spawn(move || {
+            let ui_weak = match ui_mutex.lock() {
+                Ok(ui_guard) => ui_guard,
+                Err(err) => {
+                    eprintln!(
+                        "Level Meter Run: {}: {}",
+                        ERROR_MESSAGE_INPUT_STREAM_ERROR, err
+                    );
+                    exit(EXIT_CODE_ERROR);
+                }
+            };
+
             let mut sample_receiver = match sample_receiver_mutex.lock() {
                 Ok(sample_receiver) => sample_receiver,
                 Err(err) => {
@@ -259,16 +279,6 @@ impl LevelMeter {
             };
 
             while !sample_receiver.is_abandoned() {
-                while let Ok(command) = ui_command_receiver.try_recv() {
-                    match command {
-                        EventType::MeterModeUpdate(delta_mode_enabled) => {
-                            delta_mode = delta_mode_enabled
-                        }
-                        EventType::ToneLevelUpdate(level) => refence_level = level as f32,
-                        _ => (),
-                    }
-                }
-
                 if let Ok(sample_buffers) = sample_receiver.pop() {
                     if left_input_buffer_collection.len() > INPUT_BUFFERS_FOR_PEAK_CALCULATION {
                         let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
@@ -294,9 +304,31 @@ impl LevelMeter {
                             last_left_peak = left;
                             last_right_peak = right;
 
-                            if delta_mode {
-                                left -= refence_level;
-                                right -= refence_level;
+                            let reference_level = match refence_level_arc.lock() {
+                                Ok(level) => level.to_owned(),
+                                Err(_) => {
+                                    handle_local_error(
+                                        LocalError::LevelMeterInitialization,
+                                        ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                    );
+                                    exit(EXIT_CODE_ERROR);
+                                }
+                            };
+
+                            let delta_mode_enabled = match delta_mode_enabled_arc.lock() {
+                                Ok(enabled) => enabled.to_owned(),
+                                Err(_) => {
+                                    handle_local_error(
+                                        LocalError::LevelMeterInitialization,
+                                        ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                    );
+                                    exit(EXIT_CODE_ERROR);
+                                }
+                            };
+
+                            if delta_mode_enabled {
+                                left -= reference_level;
+                                right -= reference_level;
                             }
 
                             let left_formatted = format_peak_delta_values_for_display(left);
@@ -316,6 +348,54 @@ impl LevelMeter {
         });
 
         Ok(())
+    }
+
+    pub fn run(&mut self, ui_mutex: Arc<Mutex<Weak<AppWindow>>>) -> Result<(), Box<dyn Error>> {
+        self.start_level_meter(ui_mutex)?;
+
+        let event_consumer = self.ui_command_receiver.clone();
+
+        loop {
+            if let Ok(event) = event_consumer.try_recv() {
+                match event {
+                    EventType::MeterModeUpdate(new_delta_mode) => {
+                        match self.delta_mode_enabled.lock() {
+                            Ok(mut delta_mode) => *delta_mode = new_delta_mode,
+                            Err(_) => {
+                                handle_local_error(
+                                    LocalError::LevelMeterInitialization,
+                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                );
+                                exit(EXIT_CODE_ERROR);
+                            }
+                        };
+                    }
+                    EventType::ToneLevelUpdate(new_level) => {
+                        match self.reference_level.lock() {
+                            Ok(mut level) => *level = new_level,
+                            Err(_) => {
+                                handle_local_error(
+                                    LocalError::LevelMeterInitialization,
+                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                );
+                                exit(EXIT_CODE_ERROR);
+                            }
+                        };
+                    }
+                    EventType::Start => self.start().expect("Could Not Start Level Meter"),
+                    EventType::Stop => self.stop().expect("Could Not Stop Level Meter"),
+                    EventType::MeterDeviceUpdate { index, name } => {
+                        self.set_input_device_on_ui_callback((index, name))
+                            .expect("");
+                    }
+                    EventType::MeterChannelUpdate { left, right } => {
+                        self.set_input_channel_on_ui_callback(left, right)
+                            .expect("");
+                    }
+                    _ => (),
+                }
+            };
+        }
     }
 }
 

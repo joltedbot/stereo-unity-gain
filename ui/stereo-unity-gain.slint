@@ -14,6 +14,8 @@ export component AppWindow inherits Window {
     background: transparent;
 
     in property <string> version_number;
+    in property <string> description;
+    in property <string> license;
     in-out property <[string]> input_device_list;
     in-out property <string> current_input_device;
     in-out property <[string]> output_device_list;
@@ -41,8 +43,8 @@ export component AppWindow inherits Window {
     callback start_button_pressed(bool);
     in-out property <bool> start_button_active;
 
-    callback reference_frequency_changed(float);
-    callback reference_level_changed(int);
+    callback tone_frequency_changed(float);
+    callback tone_level_changed(int);
     in-out property <float> reference_frequency;
     in-out property <int> reference_level;
 
@@ -68,6 +70,8 @@ export component AppWindow inherits Window {
 
     popup := AboutPopUp {
         version: root.version_number;
+        description: root.description;
+        license: root.license;
     }
 
     Error {
@@ -251,10 +255,10 @@ export component AppWindow inherits Window {
                         reference_frequency: root.reference_frequency;
                         reference_level: root.reference_level;
                         frequency_changed(frequency) => {
-                            root.reference_frequency_changed(frequency);
+                            root.tone_frequency_changed(frequency);
                         }
                         level_changed(level) => {
-                            root.reference_level_changed(level);
+                            root.tone_level_changed(level);
                         }
                     }
 

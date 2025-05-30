@@ -9,6 +9,8 @@ const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 
+pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
+
 slint::include_modules!();
 
 #[derive(Debug, Clone)]
@@ -95,6 +97,8 @@ impl UI {
 
         self.ui
             .set_description(SharedString::from(DESCRIPTION.to_string()));
+
+        self.ui.set_license(SharedString::from(LICENSE.to_string()));
 
         self.ui
             .set_input_device_list(get_model_from_string_slice(&self.input_device_list.devices));

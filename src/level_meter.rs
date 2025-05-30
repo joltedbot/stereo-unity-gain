@@ -256,17 +256,6 @@ impl LevelMeter {
         let delta_mode_enabled_arc = self.delta_mode_enabled.clone();
 
         thread::spawn(move || {
-            let ui_weak = match ui_mutex.lock() {
-                Ok(ui_guard) => ui_guard,
-                Err(err) => {
-                    eprintln!(
-                        "Level Meter Run: {}: {}",
-                        ERROR_MESSAGE_INPUT_STREAM_ERROR, err
-                    );
-                    exit(EXIT_CODE_ERROR);
-                }
-            };
-
             let mut sample_receiver = match sample_receiver_mutex.lock() {
                 Ok(sample_receiver) => sample_receiver,
                 Err(err) => {
@@ -278,7 +267,7 @@ impl LevelMeter {
                 }
             };
 
-            while !sample_receiver.is_abandoned() {
+            loop {
                 if let Ok(sample_buffers) = sample_receiver.pop() {
                     if left_input_buffer_collection.len() > INPUT_BUFFERS_FOR_PEAK_CALCULATION {
                         let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
@@ -333,6 +322,18 @@ impl LevelMeter {
 
                             let left_formatted = format_peak_delta_values_for_display(left);
                             let right_formatted = format_peak_delta_values_for_display(right);
+
+                            // Get fresh UI weak reference for each update
+                            let ui_weak = match ui_mutex.lock() {
+                                Ok(ui_guard) => ui_guard.clone(),
+                                Err(err) => {
+                                    eprintln!(
+                                        "Level Meter Run: {}: {}",
+                                        ERROR_MESSAGE_INPUT_STREAM_ERROR, err
+                                    );
+                                    continue;
+                                }
+                            };
 
                             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                                 ui.set_left_level_box_value(SharedString::from(left_formatted));

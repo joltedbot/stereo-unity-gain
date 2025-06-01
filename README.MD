@@ -16,7 +16,8 @@ There are 2 stages to the application:
 
 #### Input Stage:
 
-an adjustable sine wave generator that lets you choose an output device and pair of ports to use to send the tone too. You can adjust the frequency and outout level (in dbfs). The output level is calibrated to show the same output level as your DAW or other audio apps (or at least mine anyway: Ableton, Reaper, Audacity) would at the specified output level. 
+An adjustable sine wave generator that lets you choose an output device and pair of ports to use to send the tone too. You can adjust the 
+frequency and outout level (in dbfs). The output level is calibrated to show the same output level as your DAW or other audio apps (or at least mine anyway: Ableton, Reaper, Audacity) would at the specified output level. 
 
 #### Output Stage:
 

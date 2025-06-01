@@ -3,7 +3,7 @@ name = "stereo-unity-gain"
 version = "0.4.3"
 edition = "2024"
 authors = ["Dave White"]
-description = "A tool set your audio inputs and outputs to unity gain in stereoc"
+description = "A simple app with big easy to see from across room level meters to help you set your audio interfaces input gain to unity and balance stereo pairs"
 license = "Apache-2.0"
 build = "build.rs"
 

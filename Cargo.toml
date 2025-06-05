@@ -10,6 +10,7 @@ build = "build.rs"
 
 [profile.release]
 strip = true
+lto = true
 
 [dependencies]
 cpal = "0.15.3"

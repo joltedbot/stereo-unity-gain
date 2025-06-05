@@ -337,3 +337,24 @@ fn get_channel_list_from_output_device(device: &Device) -> Vec<String> {
 fn get_dbfs_adjustment_factor_from_level(level: f32) -> f32 {
     10.0_f32.powf(level / 20.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn return_correct_dbfs_adjustment_factor_from_valid_level_value() {
+        let test_level = -20.0;
+        let result = get_dbfs_adjustment_factor_from_level(test_level);
+        let correct_result = 0.1;
+        assert_eq!(result, correct_result);
+    }
+
+    #[test]
+    fn return_correct_dbfs_adjustment_factor_from_zero_level() {
+        let test_level = 0.0;
+        let result = get_dbfs_adjustment_factor_from_level(test_level);
+        let correct_result = 1.0;
+        assert_eq!(result, correct_result);
+    }
+}

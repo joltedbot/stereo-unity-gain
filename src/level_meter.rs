@@ -518,21 +518,69 @@ fn get_input_device_list_from_host(host: &Host) -> Result<DeviceList, Box<dyn Er
 
 fn get_peak_of_sine_wave_samples(samples: &mut [f32]) -> f32 {
     let peak = samples.iter().fold(0.0f32, |acc, &x| x.abs().max(acc));
-    get_dbfs_from_peak_sample(peak)
+    get_dbfs_from_sample_value(peak)
 }
 
-fn get_dbfs_from_peak_sample(sample: f32) -> f32 {
+fn get_dbfs_from_sample_value(sample: f32) -> f32 {
     20.0 * (sample.abs().log10())
 }
 
 fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
-    if peak_delta_value > 0.1 {
-        format!("+{:.1}", peak_delta_value)
+    if peak_delta_value == f32::NEG_INFINITY
+        || peak_delta_value == f32::INFINITY
+        || peak_delta_value.is_nan()
+    {
+        "-".to_string()
     } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
         "0.0".to_string()
-    } else if peak_delta_value == f32::NEG_INFINITY {
-        "-".to_string()
+    } else if peak_delta_value > 0.1 {
+        format!("+{:.1}", peak_delta_value)
     } else {
         format!("{:.1}", peak_delta_value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn return_correct_peak_of_sine_wave_samples() {
+        let mut test_samples = [0.1, -0.5, 0.3, 0.7, -0.2];
+        let peak_sample = get_peak_of_sine_wave_samples(&mut test_samples);
+        // The peak is 0.7, so dbfs should be 20*log10(0.7)
+        let expected_result = 20.0 * 0.7_f32.abs().log10();
+        assert!((peak_sample - expected_result).abs() < 1e-5);
+    }
+
+    #[test]
+    fn return_neg_infinity_for_peak_of_sine_wave_samples_when_samples_are_empty() {
+        let mut test_samples: [f32; 0] = [];
+        let dbfs = get_peak_of_sine_wave_samples(&mut test_samples);
+        assert_eq!(dbfs, f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn return_correct_dbfs_from_valid_sample() {
+        let dbfs = get_dbfs_from_sample_value(-0.5);
+        let expected_result = -6.0206003;
+        assert_eq!(dbfs, expected_result);
+    }
+
+    #[test]
+    fn return_negative_infinity_dbfs_when_sample_value_is_zero() {
+        let dbfs = get_dbfs_from_sample_value(0.0);
+        assert_eq!(dbfs, f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn return_dash_delta_value_for_display_if_infinity_nan_or_negative_infinity() {
+        let dash_delta_values = [f32::NEG_INFINITY, f32::INFINITY, f32::NAN];
+        let expected_result = "-";
+
+        for value in dash_delta_values {
+            let result = format_peak_delta_values_for_display(value);
+            assert_eq!(result, expected_result);
+        }
     }
 }

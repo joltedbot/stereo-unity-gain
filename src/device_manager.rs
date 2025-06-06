@@ -209,3 +209,50 @@ fn get_index_from_name(channel: &str) -> Result<usize, LocalError> {
 
     Ok(channel_number.saturating_sub(1))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn return_correct_index_from_valid_channel_name() {
+        let test_str = "3";
+        let expected_result = 2;
+        let result = get_index_from_name(test_str).unwrap();
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn return_zero_index_from_channel_name_that_produces_a_negative_index() {
+        let test_str = "0";
+        let expected_result = 0;
+        let result = get_index_from_name(test_str).unwrap();
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn return_correct_error_from_alpha_channel_name() {
+        let test_str = "abc";
+        let expected_result = LocalError::ChannelIndex("invalid digit found in string".to_string());
+        let result = get_index_from_name(test_str).unwrap_err();
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn return_correct_channel_indexes_from_valid_channel_names() {
+        let test_left = "2";
+        let test_right = Some(3.to_string());
+        let (left, right) = get_channel_indexes_from_channel_names(test_left, &test_right).unwrap();
+        assert_eq!(left, 1);
+        assert_eq!(right, Some(2));
+    }
+
+    #[test]
+    fn return_correct_channel_indexes_from_only_left_channel_name() {
+        let test_left = "2";
+        let test_right = None;
+        let (left, right) = get_channel_indexes_from_channel_names(test_left, &test_right).unwrap();
+        assert_eq!(left, 1);
+        assert_eq!(right, None);
+    }
+}

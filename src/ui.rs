@@ -210,8 +210,8 @@ impl UI {
             let left_channel = input_channels[0].clone();
 
             if input_channels.len() > 1 {
-                ui.set_right_output_enabled(true);
-                ui.set_right_current_output_channel(SharedString::from(input_channels[1].clone()));
+                ui.set_right_input_enabled(true);
+                ui.set_right_current_input_channel(SharedString::from(input_channels[1].clone()));
             } else {
                 ui.set_right_input_enabled(false);
             }

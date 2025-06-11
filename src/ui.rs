@@ -23,6 +23,7 @@ pub enum EventType {
     ToneLevelUpdate(f32),
     ToneDeviceUpdate { index: i32, name: String },
     ToneChannelUpdate { left: String, right: Option<String> },
+    ToneModeUpdate(bool),
     FatalError(LocalError),
     Start,
     Stop,
@@ -167,6 +168,8 @@ impl UI {
         self.on_reference_tone_frequency_changed_callback();
 
         self.on_reference_tone_level_changed_callback();
+
+        self.on_tone_mode_updated_callback();
     }
 
     pub fn on_start_button_pressed_callback(&self) {
@@ -303,6 +306,19 @@ impl UI {
         self.ui.on_tone_frequency_changed(move |frequency| {
             if let Err(error) =
                 reference_tone_sender.send(EventType::ToneFrequencyUpdate(frequency))
+            {
+                handle_ui_error(&ui_weak, &error.to_string());
+            }
+        });
+    }
+
+    fn on_tone_mode_updated_callback(&self) {
+        let ui_weak = self.ui.as_weak();
+        let tone_generator_sender = self.tone_generator_sender.clone();
+
+        self.ui.on_tone_mode_checked(move |sine_mode_enabled| {
+            if let Err(error) =
+                tone_generator_sender.send(EventType::ToneModeUpdate(sine_mode_enabled))
             {
                 handle_ui_error(&ui_weak, &error.to_string());
             }

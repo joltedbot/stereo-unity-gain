@@ -214,28 +214,30 @@ export component StartButton inherits Rectangle {
     }
 }
 
-export component DeltaModeSwitch inherits Rectangle {
-    in-out property <bool> delta_mode: true;
-    callback delta_mode_checked(bool);
+export component ModeSwitch inherits Rectangle {
+    in-out property <bool> mode_enabled: true;
+    in-out property <string> mode-on-text;
+    in-out property <string> mode-off-text;
+    callback mode_checked(bool);
 
     HorizontalLayout {
         alignment: center;
-        delta_switch := Switch {
-            height: Theme.delta-switch-height;
-            checked: delta_mode;
+        mode_switch := Switch {
+            height: Theme.mode-switch-height;
+            checked: mode_enabled;
             toggled() => {
-                root.delta_mode_checked(self.checked);
+                root.mode_checked(self.checked);
             }
         }
 
         Rectangle {
-            width: Theme.delta-switch-spacer;
+            width: Theme.mode-switch-spacer;
         }
 
         Label {
             vertical-alignment: center;
-            text: delta_switch.checked ? Theme.delta-mode-on-text : Theme.delta-mode-off-text;
-            color: delta_switch.checked ? Theme.text-color.brighter(0.3) : Theme.text-color;
+            text: mode_switch.checked ? mode-on-text : mode-off-text;
+            color: mode_switch.checked ? Theme.text-color.brighter(0.3) : Theme.text-color;
         }
     }
 }

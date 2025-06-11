@@ -5,19 +5,28 @@ use cpal::traits::*;
 use cpal::{Device, Stream, StreamError, default_host};
 use crossbeam_channel::Receiver;
 use sine::Sine;
+use square::Square;
 use std::error::Error;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
 mod sine;
+mod square;
 
 const ERROR_MESSAGE_OUTPUT_STREAM_ERROR: &str = "Output Stream Error!";
+const MINIMUM_DBFS_FACTOR_THRESHOLD: f32 = 0.001;
+
+pub trait WaveShape {
+    fn new(sample_rate: f32) -> Self;
+    fn generate_tone_sample(&mut self, _reference_frequency: f32, target_level: f32) -> f32;
+}
 
 pub struct ToneGenerator {
     output_device: Device,
     output_stream: Stream,
     current_output_device: CurrentDevice,
     output_device_list: DeviceList,
+    sine_mode_enabled: Arc<Mutex<bool>>,
     reference_frequency: Arc<Mutex<f32>>,
     reference_level: Arc<Mutex<f32>>,
     ui_command_receiver: Receiver<EventType>,
@@ -45,11 +54,13 @@ impl ToneGenerator {
 
         let reference_frequency_arc = Arc::new(Mutex::new(reference_frequency));
         let reference_level_arc = Arc::new(Mutex::new(reference_level));
+        let sine_mode_arc = Arc::new(Mutex::new(true));
 
         let output_stream = create_output_steam(
             &output_device,
             left_output_channel_index,
             right_output_channel_index,
+            sine_mode_arc.clone(),
             reference_frequency_arc.clone(),
             reference_level_arc.clone(),
         )?;
@@ -59,6 +70,7 @@ impl ToneGenerator {
         Ok(Self {
             output_device,
             current_output_device,
+            sine_mode_enabled: sine_mode_arc,
             reference_frequency: reference_frequency_arc,
             reference_level: reference_level_arc,
             output_stream,
@@ -90,6 +102,11 @@ impl ToneGenerator {
                     EventType::ToneLevelUpdate(new_level) => {
                         if let Ok(mut level) = self.reference_level.lock() {
                             *level = new_level;
+                        }
+                    }
+                    EventType::ToneModeUpdate(sine_enabled) => {
+                        if let Ok(mut sine_mode_enabled) = self.sine_mode_enabled.lock() {
+                            *sine_mode_enabled = sine_enabled;
                         }
                     }
                     _ => (),
@@ -173,6 +190,7 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
+            self.sine_mode_enabled.clone(),
             self.reference_frequency.clone(),
             self.reference_level.clone(),
         )
@@ -199,6 +217,7 @@ impl ToneGenerator {
             &self.output_device,
             left_output_channel_index,
             right_output_channel_index,
+            self.sine_mode_enabled.clone(),
             self.reference_frequency.clone(),
             self.reference_level.clone(),
         )
@@ -234,6 +253,7 @@ fn create_output_steam(
     device: &Device,
     left_channel_index: usize,
     right_channel_index: Option<usize>,
+    sine_mode_enabled: Arc<Mutex<bool>>,
     reference_frequency: Arc<Mutex<f32>>,
     reference_level: Arc<Mutex<f32>>,
 ) -> Result<Stream, LocalError> {
@@ -244,7 +264,8 @@ fn create_output_steam(
     let stream_config = config_result.config();
     let number_of_channels = stream_config.channels;
     let sample_rate = stream_config.sample_rate.0 as f32;
-    let mut wave = Sine::new(sample_rate);
+    let mut sine_wave = Sine::new(sample_rate);
+    let mut square_wave = Square::new(sample_rate);
 
     let initial_frequency = match reference_frequency.lock() {
         Ok(frequency) => frequency.to_owned(),
@@ -256,7 +277,12 @@ fn create_output_steam(
         Err(_) => return Err(LocalError::ToneGeneratorInitialization),
     };
 
-    let mut dbfs_adjustment_factor = get_dbfs_adjustment_factor_from_level(initial_level);
+    let initial_sine_mode = match sine_mode_enabled.lock() {
+        Ok(sine_mode_enabled) => sine_mode_enabled.to_owned(),
+        Err(_) => return Err(LocalError::ToneGeneratorInitialization),
+    };
+
+    let mut dbfs_adjustment_factor = get_dbfs_adjustment_factor_from_target_level(initial_level);
 
     let callback = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let current_frequency = if let Ok(frequency) = reference_frequency.lock() {
@@ -271,13 +297,24 @@ fn create_output_steam(
             initial_level
         };
 
-        let current_dbfs_factor = get_dbfs_adjustment_factor_from_level(current_level);
-        if (current_dbfs_factor - dbfs_adjustment_factor).abs() > 0.001 {
+        let current_sine_mode = if let Ok(sine_mode_enabled) = sine_mode_enabled.lock() {
+            *sine_mode_enabled
+        } else {
+            initial_sine_mode
+        };
+
+        let current_dbfs_factor = get_dbfs_adjustment_factor_from_target_level(current_level);
+        if (current_dbfs_factor - dbfs_adjustment_factor).abs() > MINIMUM_DBFS_FACTOR_THRESHOLD {
             dbfs_adjustment_factor = current_dbfs_factor;
         }
 
         for channels in data.chunks_mut(number_of_channels as usize) {
-            let tone_sample = wave.generate_tone_sample(current_frequency, dbfs_adjustment_factor);
+            let tone_sample = if current_sine_mode {
+                sine_wave.generate_tone_sample(current_frequency, current_level)
+            } else {
+                square_wave.generate_tone_sample(current_frequency, current_level)
+            };
+
             channels[left_channel_index] = tone_sample;
             if let Some(index) = right_channel_index {
                 channels[index] = tone_sample;
@@ -334,7 +371,7 @@ fn get_channel_list_from_output_device(device: &Device) -> Vec<String> {
     }
 }
 
-fn get_dbfs_adjustment_factor_from_level(level: f32) -> f32 {
+fn get_dbfs_adjustment_factor_from_target_level(level: f32) -> f32 {
     10.0_f32.powf(level / 20.0)
 }
 
@@ -345,7 +382,7 @@ mod tests {
     #[test]
     fn return_correct_dbfs_adjustment_factor_from_valid_level_value() {
         let test_level = -20.0;
-        let result = get_dbfs_adjustment_factor_from_level(test_level);
+        let result = get_dbfs_adjustment_factor_from_target_level(test_level);
         let correct_result = 0.1;
         assert_eq!(result, correct_result);
     }
@@ -353,7 +390,7 @@ mod tests {
     #[test]
     fn return_correct_dbfs_adjustment_factor_from_zero_level() {
         let test_level = 0.0;
-        let result = get_dbfs_adjustment_factor_from_level(test_level);
+        let result = get_dbfs_adjustment_factor_from_target_level(test_level);
         let correct_result = 1.0;
         assert_eq!(result, correct_result);
     }

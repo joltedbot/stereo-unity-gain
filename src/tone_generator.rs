@@ -358,7 +358,7 @@ pub fn get_default_device_data_from_output_device(
 
 fn stream_error_callback(err: StreamError) {
     eprintln!("{}: {}", ERROR_MESSAGE_OUTPUT_STREAM_ERROR, err);
-    exit(EXIT_CODE_ERROR)
+    //  exit(EXIT_CODE_ERROR)
 }
 
 fn get_channel_list_from_output_device(device: &Device) -> Vec<String> {

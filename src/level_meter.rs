@@ -1,11 +1,10 @@
 use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
-use crate::ui::{AppWindow, EventType};
+use crate::ui::EventType;
 use cpal::traits::*;
 use cpal::{Device, Host, Stream, default_host};
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use rtrb::{Consumer, Producer, RingBuffer};
-use slint::{SharedString, Weak};
 use std::error::Error;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
@@ -244,7 +243,7 @@ impl LevelMeter {
 
     pub fn start_level_meter(
         &mut self,
-        ui_mutex: Arc<Mutex<Weak<AppWindow>>>,
+        level_meter_display_sender: Sender<EventType>,
     ) -> Result<(), Box<dyn Error>> {
         let mut left_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
         let mut right_input_buffer_collection: Vec<Vec<f32>> = Vec::new();
@@ -323,22 +322,14 @@ impl LevelMeter {
                             let left_formatted = format_peak_delta_values_for_display(left);
                             let right_formatted = format_peak_delta_values_for_display(right);
 
-                            // Get fresh UI weak reference for each update
-                            let ui_weak = match ui_mutex.lock() {
-                                Ok(ui_guard) => ui_guard.clone(),
-                                Err(err) => {
-                                    eprintln!(
-                                        "Level Meter Run: {}: {}",
-                                        ERROR_MESSAGE_INPUT_STREAM_ERROR, err
-                                    );
-                                    continue;
-                                }
+                            if let Err(error) =
+                                level_meter_display_sender.send(EventType::MeterLevelUpdate {
+                                    left: left_formatted,
+                                    right: right_formatted,
+                                })
+                            {
+                                eprintln!("Error sending event: {}", error);
                             };
-
-                            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                                ui.set_left_level_box_value(SharedString::from(left_formatted));
-                                ui.set_right_level_box_value(SharedString::from(right_formatted));
-                            });
                         }
                     }
 
@@ -351,8 +342,11 @@ impl LevelMeter {
         Ok(())
     }
 
-    pub fn run(&mut self, ui_mutex: Arc<Mutex<Weak<AppWindow>>>) -> Result<(), Box<dyn Error>> {
-        self.start_level_meter(ui_mutex)?;
+    pub fn run(
+        &mut self,
+        level_meter_display_sender: Sender<EventType>,
+    ) -> Result<(), Box<dyn Error>> {
+        self.start_level_meter(level_meter_display_sender)?;
 
         let event_consumer = self.ui_command_receiver.clone();
 
@@ -449,7 +443,7 @@ fn create_input_stream(
             },
             |err| {
                 eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
-                exit(EXIT_CODE_ERROR);
+                //    exit(EXIT_CODE_ERROR);
             },
             None,
         )

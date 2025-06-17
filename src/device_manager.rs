@@ -1,13 +1,7 @@
-use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
-use crate::ui::UI;
-use crate::{DEFAULT_REFERENCE_FREQUENCY, DEFAULT_REFERENCE_LEVEL};
+use crate::errors::LocalError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, default_host};
 use std::error::Error;
-use std::process::exit;
-use std::sync::{Arc, Mutex};
-use std::thread::sleep;
-use std::time::Duration;
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct DeviceList {
@@ -43,49 +37,6 @@ impl DeviceManager {
             current_input_device,
             current_output_device,
         })
-    }
-
-    pub fn update_device_lists(&mut self) -> Result<(), Box<dyn Error>> {
-        self.input_devices = get_input_device_list_from_host()?;
-        self.output_devices = get_output_device_list_from_host()?;
-
-        Ok(())
-    }
-
-    pub fn run(&mut self, ui_mutex: Arc<Mutex<UI>>) -> Result<(), Box<dyn Error>> {
-        loop {
-            let input_devices = get_input_device_list_from_host()?;
-            let output_devices = get_output_device_list_from_host()?;
-
-            if input_devices != self.input_devices || output_devices != self.output_devices {
-                println!("Updating device lists...");
-                self.update_device_lists()?;
-                self.current_input_device = get_default_input_device_data(&input_devices)?;
-                self.current_output_device = get_default_output_device_data(&output_devices)?;
-
-                let mut ui = match ui_mutex.lock() {
-                    Ok(ui) => ui,
-                    Err(err) => {
-                        eprintln!("Device Manager Run: {}", err);
-                        continue;
-                    }
-                };
-
-                if let Err(err) = ui.initialize_ui_with_device_data(
-                    self.get_input_devices(),
-                    self.get_current_input_device(),
-                    self.get_output_devices(),
-                    self.get_current_output_device(),
-                    DEFAULT_REFERENCE_FREQUENCY,
-                    DEFAULT_REFERENCE_LEVEL,
-                ) {
-                    handle_local_error(LocalError::UIInitialization, err.to_string());
-                    exit(EXIT_CODE_ERROR);
-                }
-            }
-
-            sleep(Duration::from_millis(100));
-        }
     }
 
     pub fn get_input_devices(&self) -> DeviceList {

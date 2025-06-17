@@ -1,6 +1,6 @@
 use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
-use crate::ui::EventType;
+use crate::events::EventType;
 use cpal::traits::*;
 use cpal::{Device, Host, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
@@ -18,6 +18,8 @@ const DEFAULT_DELTA_MODE: bool = true;
 const RING_BUFFER_SIZE: usize = 1024;
 
 struct SampleFrameBuffer {
+    is_alive: bool,
+    error_message: String,
     left: Vec<f32>,
     right: Vec<f32>,
 }
@@ -268,6 +270,14 @@ impl LevelMeter {
 
             loop {
                 if let Ok(sample_buffers) = sample_receiver.pop() {
+                    if !sample_buffers.is_alive {
+                        if let Err(error) = level_meter_display_sender
+                            .send(EventType::FatalError(sample_buffers.error_message))
+                        {
+                            eprintln!("Level Meter Display Error: {}", error);
+                        }
+                    }
+
                     if left_input_buffer_collection.len() > INPUT_BUFFERS_FOR_PEAK_CALCULATION {
                         let mut left_samples_buffer: Vec<f32> = left_input_buffer_collection
                             .iter()
@@ -411,6 +421,8 @@ fn create_input_stream(
     let mut left_channel_samples = Vec::new();
     let mut right_channel_samples = Vec::new();
 
+    let error_producer_mutex = sample_producer_mutex.clone();
+
     device
         .build_input_stream(
             &stream_config,
@@ -432,6 +444,8 @@ fn create_input_stream(
                 };
 
                 if let Err(err) = sample_producer.push(SampleFrameBuffer {
+                    is_alive: true,
+                    error_message: String::new(),
                     left: left_channel_samples.clone(),
                     right: right_channel_samples.clone(),
                 }) {
@@ -441,9 +455,24 @@ fn create_input_stream(
                 left_channel_samples.clear();
                 right_channel_samples.clear();
             },
-            |err| {
-                eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
-                //    exit(EXIT_CODE_ERROR);
+            move |error| {
+                let mut error_producer = match error_producer_mutex.lock() {
+                    Ok(error_producer) => error_producer,
+                    Err(err) => {
+                        eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
+                        exit(EXIT_CODE_ERROR);
+                    }
+                };
+
+                if let Err(err) = error_producer.push(SampleFrameBuffer {
+                    is_alive: false,
+                    error_message: error.to_string(),
+                    left: Vec::new(),
+                    right: Vec::new(),
+                }) {
+                    eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
+                    exit(EXIT_CODE_ERROR);
+                }
             },
             None,
         )

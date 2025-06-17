@@ -1,6 +1,7 @@
 use crate::device_manager::{CurrentDevice, DeviceList};
 use crate::errors::LocalError;
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crate::events::EventType;
+use crossbeam_channel::{Receiver, Sender};
 use slint::{ModelRc, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::process::exit;
@@ -14,28 +15,9 @@ pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
 
 slint::include_modules!();
 
-#[derive(Debug, Clone)]
-pub enum EventType {
-    MeterLevelUpdate { left: String, right: String },
-    MeterModeUpdate(bool),
-    MeterDeviceUpdate { index: i32, name: String },
-    MeterChannelUpdate { left: String, right: Option<String> },
-    ToneFrequencyUpdate(f32),
-    ToneLevelUpdate(f32),
-    ToneDeviceUpdate { index: i32, name: String },
-    ToneChannelUpdate { left: String, right: Option<String> },
-    ToneModeUpdate(bool),
-    FatalError(LocalError),
-    Start,
-    Stop,
-    Exit,
-}
-
 pub struct UI {
     pub ui: Weak<AppWindow>,
-    level_meter_receiver: Receiver<EventType>,
     level_meter_sender: Sender<EventType>,
-    tone_generator_receiver: Receiver<EventType>,
     tone_generator_sender: Sender<EventType>,
     input_device_list: DeviceList,
     output_device_list: DeviceList,
@@ -44,15 +26,11 @@ pub struct UI {
 }
 
 impl UI {
-    pub fn new(ui_mutex: Arc<Mutex<Weak<AppWindow>>>) -> Result<Self, Box<dyn Error>> {
-        let (meter_sender, meter_receiver) = unbounded();
-        let level_meter_receiver = meter_receiver.clone();
-        let level_meter_sender = meter_sender;
-
-        let (tone_sender, tone_receiver) = unbounded();
-        let tone_generator_receiver = tone_receiver.clone();
-        let tone_generator_sender = tone_sender;
-
+    pub fn new(
+        ui_mutex: Arc<Mutex<Weak<AppWindow>>>,
+        tone_generator_sender: Sender<EventType>,
+        level_meter_sender: Sender<EventType>,
+    ) -> Result<Self, Box<dyn Error>> {
         let ui_weak = match ui_mutex.lock() {
             Ok(ui_guard) => ui_guard.clone(),
             Err(_) => {
@@ -62,10 +40,8 @@ impl UI {
 
         let ui = Self {
             ui: ui_weak,
-            level_meter_receiver,
-            level_meter_sender,
-            tone_generator_receiver,
             tone_generator_sender,
+            level_meter_sender,
             input_device_list: DeviceList::default(),
             output_device_list: DeviceList::default(),
             current_input_device: CurrentDevice::default(),
@@ -90,6 +66,14 @@ impl UI {
                             ui.set_right_level_box_value(SharedString::from(right));
                         });
                     }
+                    EventType::FatalError(error) => {
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            if !ui.get_error_dialog_visible() {
+                                ui.set_error_message(SharedString::from(error.to_string()));
+                                ui.set_error_dialog_visible(true);
+                            }
+                        });
+                    }
                     EventType::Exit => {
                         break;
                     }
@@ -99,14 +83,6 @@ impl UI {
         }
 
         Ok(())
-    }
-
-    pub fn get_level_meter_receiver(&self) -> Receiver<EventType> {
-        self.level_meter_receiver.clone()
-    }
-
-    pub fn get_tone_generator_receiver(&self) -> Receiver<EventType> {
-        self.tone_generator_receiver.clone()
     }
 
     pub fn initialize_ui_with_device_data(
@@ -246,12 +222,12 @@ impl UI {
             }
         };
 
-        let input_device_sender = self.level_meter_sender.clone();
+        let level_meter_sender = self.level_meter_sender.clone();
         let input_device_list = self.input_device_list.clone();
 
         ui.on_selected_input_device(move |index, device| {
             let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-            if let Err(error) = input_device_sender.send(EventType::MeterDeviceUpdate {
+            if let Err(error) = level_meter_sender.send(EventType::MeterDeviceUpdate {
                 index,
                 name: device.to_string(),
             }) {
@@ -284,12 +260,12 @@ impl UI {
             }
         };
 
-        let output_device_sender = self.tone_generator_sender.clone();
+        let tone_generator_sender = self.tone_generator_sender.clone();
         let output_device_list = self.output_device_list.clone();
 
         ui.on_selected_output_device(move |index, device| {
             let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-            if let Err(error) = output_device_sender.send(EventType::ToneDeviceUpdate {
+            if let Err(error) = tone_generator_sender.send(EventType::ToneDeviceUpdate {
                 index,
                 name: device.to_string(),
             }) {

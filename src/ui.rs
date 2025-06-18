@@ -101,8 +101,10 @@ impl UI {
 
         let ui_weak = self.ui.clone();
 
-        let left_channel = self.current_output_device.left_channel.clone();
-        let right_channel = self.current_output_device.right_channel.clone();
+        let left_input_channel = self.current_input_device.left_channel.clone();
+        let right_input_channel = self.current_input_device.right_channel.clone();
+        let left_output_channel = self.current_output_device.left_channel.clone();
+        let right_output_channel = self.current_output_device.right_channel.clone();
         let input_device_list = self.input_device_list.clone();
         let output_device_list = self.output_device_list.clone();
         let current_input_device = self.current_input_device.clone();
@@ -131,15 +133,13 @@ impl UI {
 
             ui.set_current_output_device(SharedString::from(current_output_device.name.clone()));
 
-            ui.set_left_current_output_channel(SharedString::from(left_channel.clone()));
+            ui.set_left_current_output_channel(SharedString::from(left_output_channel));
 
             ui.set_current_input_device(SharedString::from(current_input_device.name.clone()));
 
-            ui.set_left_current_input_channel(SharedString::from(
-                current_input_device.left_channel.clone(),
-            ));
+            ui.set_left_current_input_channel(SharedString::from(left_input_channel));
 
-            match &right_channel {
+            match &right_output_channel {
                 None => ui.set_right_output_enabled(false),
                 Some(channel) => {
                     ui.set_right_output_enabled(true);
@@ -147,10 +147,14 @@ impl UI {
                 }
             }
 
-            match &right_channel {
-                None => ui.set_right_input_enabled(false),
+            match &right_input_channel {
+                None => {
+                    ui.set_right_input_enabled(false);
+                    ui.set_right_level_box_enabled(false);
+                }
                 Some(channel) => {
                     ui.set_right_input_enabled(true);
+                    ui.set_right_level_box_enabled(true);
                     ui.set_right_current_input_channel(SharedString::from(channel));
                 }
             }
@@ -239,9 +243,11 @@ impl UI {
 
             if input_channels.len() > 1 {
                 ui.set_right_input_enabled(true);
+                ui.set_right_level_box_enabled(true);
                 ui.set_right_current_input_channel(SharedString::from(input_channels[1].clone()));
             } else {
                 ui.set_right_input_enabled(false);
+                ui.set_right_level_box_enabled(false);
             }
 
             let input_channel_model = get_model_from_string_slice(input_channels);
@@ -277,9 +283,11 @@ impl UI {
 
             if output_channels.len() > 1 {
                 ui.set_right_output_enabled(true);
+                ui.set_right_level_box_enabled(true);
                 ui.set_right_current_output_channel(SharedString::from(output_channels[1].clone()));
             } else {
                 ui.set_right_output_enabled(false);
+                ui.set_right_level_box_enabled(false);
             }
 
             let output_channel_model = get_model_from_string_slice(output_channels);

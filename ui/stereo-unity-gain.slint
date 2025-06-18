@@ -34,8 +34,9 @@ export component AppWindow inherits Window {
     callback selected_input_channel(string, string);
     callback selected_output_channel(string, string);
 
-    in-out property <string> left_level_box_value: "-";
-    in-out property <string> right_level_box_value: "-";
+    in-out property <string> left_level_box_value: Theme.level-box-default-value;
+    in-out property <string> right_level_box_value:  Theme.level-box-default-value;
+    in-out property <bool> right_level_box_enabled;
 
     callback delta_mode_checked(bool);
     in-out property <bool> delta_mode_active: true;
@@ -295,6 +296,7 @@ export component AppWindow inherits Window {
 
                 right_level_box := LevelBox {
                     value: right_level_box_value;
+                    enabled: right_level_box_enabled;
                 }
             }
         }

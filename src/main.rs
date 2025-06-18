@@ -1,14 +1,18 @@
 mod device_manager;
 mod errors;
+mod events;
 pub mod level_meter;
 pub mod tone_generator;
 mod ui;
 
 use crate::device_manager::DeviceManager;
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
+use crate::events::EventType;
+use crate::events::Events;
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
-use crate::ui::UI;
+use crate::ui::{AppWindow, UI};
+use crossbeam_channel::{Receiver, Sender};
 use slint::ComponentHandle;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
@@ -18,7 +22,24 @@ const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
 const DEFAULT_REFERENCE_LEVEL: i32 = -18;
 
 fn main() -> Result<(), slint::PlatformError> {
-    let mut ui = UI::new()?;
+    let application = AppWindow::new()?;
+
+    let events = Events::new();
+
+    let tone_generator_sender = events.get_tone_generator_sender();
+    let level_meter_sender = events.get_level_meter_sender();
+
+    let mut ui = match UI::new(
+        Arc::new(Mutex::new(application.as_weak())),
+        tone_generator_sender,
+        level_meter_sender,
+    ) {
+        Ok(ui) => ui,
+        Err(error) => {
+            handle_local_error(LocalError::UIInitialization, error.to_string());
+            exit(EXIT_CODE_ERROR);
+        }
+    };
 
     let device_manager = match DeviceManager::new() {
         Ok(device_manager) => device_manager,
@@ -42,15 +63,19 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.create_ui_callbacks();
 
-    let tone_generator_receiver = ui.get_tone_generator_receiver();
+    let tone_generator_receiver = events.get_tone_generator_receiver();
+    let output_device_list = device_manager.get_output_devices();
+    let current_output_device = device_manager.get_current_output_device();
+    let tone_generator_ui_sender = events.get_user_interface_sender();
 
     thread::spawn(move || {
         let mut tone_generator = match ToneGenerator::new(
-            device_manager.get_output_devices(),
-            device_manager.get_current_output_device(),
+            output_device_list,
+            current_output_device,
             DEFAULT_REFERENCE_FREQUENCY,
             DEFAULT_REFERENCE_LEVEL as f32,
             tone_generator_receiver,
+            tone_generator_ui_sender,
         ) {
             Ok(tone_generator) => tone_generator,
             Err(error) => {
@@ -62,9 +87,8 @@ fn main() -> Result<(), slint::PlatformError> {
         tone_generator.run();
     });
 
-    let level_meter_receiver = ui.get_level_meter_receiver();
-    let app_mutex = Arc::new(Mutex::new(ui.ui.as_weak()));
-    let thread_app_mutex = app_mutex.clone();
+    let level_meter_ui_sender: Sender<EventType> = events.get_user_interface_sender();
+    let level_meter_receiver = events.get_level_meter_receiver();
 
     thread::spawn(move || {
         let mut level_meter =
@@ -76,12 +100,21 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             };
 
-        if let Err(error) = level_meter.run(thread_app_mutex) {
+        if let Err(error) = level_meter.run(level_meter_ui_sender) {
             handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     });
 
+    let user_interface_receiver: Receiver<EventType> = events.get_user_interface_receiver();
+
+    thread::spawn(move || {
+        if let Err(error) = ui.run(user_interface_receiver) {
+            handle_local_error(LocalError::UIInitialization, error.to_string());
+            exit(EXIT_CODE_ERROR);
+        }
+    });
+
     // Start the UI and enter the main program loop
-    ui.run()
+    application.run()
 }

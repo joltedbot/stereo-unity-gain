@@ -14,6 +14,7 @@ export component Label inherits Text {
 export component LevelBox inherits Rectangle {
     in property <string> value;
     in property <bool> delta-mode: true;
+    in property <bool> enabled: true;
     width: Theme.level-box-width;
     height: Theme.level-box-height;
 
@@ -40,8 +41,11 @@ export component LevelBox inherits Rectangle {
                 box-background.background = Theme.level-box-background-low;
             } else if (self.text.to-float() > 0.1) {
                 box-background.background = Theme.level-box-background-high;
+            } else if (!enabled) {
+               self.text = Theme.level-box-default-value;
+               box-background.background = Theme.level-box-background-start;
             } else {
-                box-background.background = Theme.level-box-background-right;
+                box-background.background = Theme.level-box-background-correct;
             }
         }
     }

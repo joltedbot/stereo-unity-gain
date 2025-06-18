@@ -1,9 +1,9 @@
 use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError};
-use crate::ui::EventType;
+use crate::events::EventType;
 use cpal::traits::*;
-use cpal::{Device, Stream, StreamError, default_host};
-use crossbeam_channel::Receiver;
+use cpal::{Device, Stream, default_host};
+use crossbeam_channel::{Receiver, Sender};
 use sine::Sine;
 use square::Square;
 use std::error::Error;
@@ -30,6 +30,7 @@ pub struct ToneGenerator {
     reference_frequency: Arc<Mutex<f32>>,
     reference_level: Arc<Mutex<f32>>,
     ui_command_receiver: Receiver<EventType>,
+    user_interface_sender: Sender<EventType>,
 }
 
 impl ToneGenerator {
@@ -39,6 +40,7 @@ impl ToneGenerator {
         reference_frequency: f32,
         reference_level: f32,
         ui_command_receiver: Receiver<EventType>,
+        user_interface_sender: Sender<EventType>,
     ) -> Result<Self, Box<dyn Error>> {
         let host = default_host();
 
@@ -63,6 +65,7 @@ impl ToneGenerator {
             sine_mode_arc.clone(),
             reference_frequency_arc.clone(),
             reference_level_arc.clone(),
+            user_interface_sender.clone(),
         )?;
 
         output_stream.pause()?;
@@ -76,6 +79,7 @@ impl ToneGenerator {
             output_stream,
             output_device_list,
             ui_command_receiver,
+            user_interface_sender,
         })
     }
 
@@ -186,6 +190,8 @@ impl ToneGenerator {
                 &self.current_output_device.right_channel,
             )?;
 
+        let user_interface_sender = self.user_interface_sender.clone();
+
         self.output_stream = create_output_steam(
             &self.output_device,
             left_output_channel_index,
@@ -193,6 +199,7 @@ impl ToneGenerator {
             self.sine_mode_enabled.clone(),
             self.reference_frequency.clone(),
             self.reference_level.clone(),
+            user_interface_sender,
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -213,6 +220,8 @@ impl ToneGenerator {
                 &self.current_output_device.right_channel,
             )?;
 
+        let user_interface_sender = self.user_interface_sender.clone();
+
         self.output_stream = create_output_steam(
             &self.output_device,
             left_output_channel_index,
@@ -220,6 +229,7 @@ impl ToneGenerator {
             self.sine_mode_enabled.clone(),
             self.reference_frequency.clone(),
             self.reference_level.clone(),
+            user_interface_sender,
         )
         .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
@@ -256,6 +266,7 @@ fn create_output_steam(
     sine_mode_enabled: Arc<Mutex<bool>>,
     reference_frequency: Arc<Mutex<f32>>,
     reference_level: Arc<Mutex<f32>>,
+    user_interface_sender: Sender<EventType>,
 ) -> Result<Stream, LocalError> {
     let config_result = device
         .default_output_config()
@@ -323,7 +334,19 @@ fn create_output_steam(
     };
 
     device
-        .build_output_stream(&stream_config, callback, stream_error_callback, None)
+        .build_output_stream(
+            &stream_config,
+            callback,
+            move |error| {
+                if let Err(err) =
+                    user_interface_sender.send(EventType::FatalError(error.to_string()))
+                {
+                    eprintln!("{}: {}", ERROR_MESSAGE_OUTPUT_STREAM_ERROR, err);
+                    exit(EXIT_CODE_ERROR);
+                }
+            },
+            None,
+        )
         .map_err(|err| LocalError::OutputStream(err.to_string()))
 }
 
@@ -354,11 +377,6 @@ pub fn get_default_device_data_from_output_device(
         left_channel,
         right_channel,
     })
-}
-
-fn stream_error_callback(err: StreamError) {
-    eprintln!("{}: {}", ERROR_MESSAGE_OUTPUT_STREAM_ERROR, err);
-    exit(EXIT_CODE_ERROR)
 }
 
 fn get_channel_list_from_output_device(device: &Device) -> Vec<String> {

@@ -3,13 +3,13 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, default_host};
 use std::error::Error;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct DeviceList {
     pub devices: Vec<String>,
     pub channels: Vec<Vec<String>>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct CurrentDevice {
     pub index: i32,
     pub name: String,

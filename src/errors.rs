@@ -13,6 +13,9 @@ pub enum LocalError {
     #[error("Error Initializing User Interface")]
     UIInitialization,
 
+    #[error("Error Populating User Interface")]
+    UIInitialPopulation,
+
     #[error("Error Initializing Audio Devices")]
     DeviceManagerInitialization,
 

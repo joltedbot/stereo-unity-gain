@@ -74,6 +74,22 @@ impl UI {
                             }
                         });
                     }
+                    EventType::InputDevicesUpdate(input_device_list) => {
+                        self.input_device_list = input_device_list.clone();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_input_device_list(get_model_from_string_slice(
+                                &input_device_list.devices,
+                            ));
+                        });
+                    }
+                    EventType::OutputDevicesUpdate(output_device_list) => {
+                        self.output_device_list = output_device_list.clone();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_output_device_list(get_model_from_string_slice(
+                                &output_device_list.devices,
+                            ));
+                        });
+                    }
                     EventType::Exit => {
                         break;
                     }
@@ -182,7 +198,7 @@ impl UI {
         self.on_tone_mode_updated_callback();
     }
 
-    pub fn on_start_button_pressed_callback(&self) {
+    fn on_start_button_pressed_callback(&self) {
         let ui_weak = self.ui.clone();
         let ui = match ui_weak.upgrade() {
             Some(ui) => ui,
@@ -213,7 +229,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_input_device_callback(&self) {
+    fn on_select_new_input_device_callback(&self) {
         let ui_weak = self.ui.clone();
         let ui = match ui_weak.upgrade() {
             Some(ui) => ui,
@@ -256,7 +272,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_output_device_callback(&self) {
+    fn on_select_new_output_device_callback(&self) {
         let ui_weak = self.ui.clone();
         let ui = match ui_weak.upgrade() {
             Some(ui) => ui,
@@ -296,7 +312,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_input_channel_callback(&self) {
+    fn on_select_new_input_channel_callback(&self) {
         let ui_weak = self.ui.clone();
         let ui = match ui_weak.upgrade() {
             Some(ui) => ui,
@@ -328,7 +344,7 @@ impl UI {
         });
     }
 
-    pub fn on_select_new_output_channel_callback(&self) {
+    fn on_select_new_output_channel_callback(&self) {
         let ui_weak = self.ui.clone();
         let ui = match ui_weak.upgrade() {
             Some(ui) => ui,

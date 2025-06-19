@@ -41,7 +41,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
 
-    let device_manager = match DeviceManager::new() {
+    let device_manager_ui_sender = events.get_user_interface_sender();
+
+    let mut device_manager = match DeviceManager::new(device_manager_ui_sender) {
         Ok(device_manager) => device_manager,
         Err(error) => {
             handle_local_error(LocalError::DeviceManagerInitialization, error.to_string());
@@ -106,8 +108,14 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    let user_interface_receiver: Receiver<EventType> = events.get_user_interface_receiver();
+    thread::spawn(move || {
+        if let Err(error) = device_manager.run() {
+            handle_local_error(LocalError::DeviceManagerInitialization, error.to_string());
+            exit(EXIT_CODE_ERROR);
+        }
+    });
 
+    let user_interface_receiver: Receiver<EventType> = events.get_user_interface_receiver();
     thread::spawn(move || {
         if let Err(error) = ui.run(user_interface_receiver) {
             handle_local_error(LocalError::UIInitialization, error.to_string());

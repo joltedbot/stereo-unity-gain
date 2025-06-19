@@ -1,7 +1,13 @@
 use crate::errors::LocalError;
+use crate::events::EventType;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, default_host};
+use crossbeam_channel::Sender;
 use std::error::Error;
+use std::thread::sleep;
+use std::time::Duration;
+
+const RUN_LOOP_SLEEP_DURATION_IN_MILLISECONDS: u64 = 300;
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct DeviceList {
@@ -18,6 +24,7 @@ pub struct CurrentDevice {
 }
 
 pub struct DeviceManager {
+    user_interface_sender: Sender<EventType>,
     input_devices: DeviceList,
     output_devices: DeviceList,
     current_input_device: CurrentDevice,
@@ -25,18 +32,40 @@ pub struct DeviceManager {
 }
 
 impl DeviceManager {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new(user_interface_sender: Sender<EventType>) -> Result<Self, Box<dyn Error>> {
         let input_devices = get_input_device_list_from_host()?;
         let current_input_device = get_default_input_device_data(&input_devices)?;
         let output_devices = get_output_device_list_from_host()?;
         let current_output_device = get_default_output_device_data(&output_devices)?;
 
         Ok(Self {
+            user_interface_sender,
             input_devices,
             output_devices,
             current_input_device,
             current_output_device,
         })
+    }
+
+    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        loop {
+            let input_devices = get_input_device_list_from_host()?;
+            let output_devices = get_output_device_list_from_host()?;
+            if input_devices != self.input_devices {
+                self.input_devices = input_devices;
+                self.user_interface_sender
+                    .send(EventType::InputDevicesUpdate(self.input_devices.clone()))?;
+            }
+
+            if output_devices != self.output_devices {
+                self.output_devices = output_devices;
+                self.user_interface_sender
+                    .send(EventType::OutputDevicesUpdate(self.output_devices.clone()))?;
+            }
+            sleep(Duration::from_millis(
+                RUN_LOOP_SLEEP_DURATION_IN_MILLISECONDS,
+            ));
+        }
     }
 
     pub fn get_input_devices(&self) -> DeviceList {

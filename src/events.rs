@@ -1,3 +1,4 @@
+use crate::device_manager::DeviceList;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,6 +12,8 @@ pub enum EventType {
     ToneDeviceUpdate { index: i32, name: String },
     ToneChannelUpdate { left: String, right: Option<String> },
     ToneModeUpdate(bool),
+    InputDevicesUpdate(DeviceList),
+    OutputDevicesUpdate(DeviceList),
     FatalError(String),
     Start,
     Stop,

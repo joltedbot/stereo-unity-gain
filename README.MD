@@ -1,6 +1,6 @@
 # Stereo Unity Gain (SUG)
 
-***-- Still Under Active Development. --***
+
 
 A simple app with big easy to see from across room level meters to help you set your audio interfaces input gain to unity and balance stereo pairs. Or what ever else you want to do with it. Use your imagination.  If you come up with a novel use case please let me know.
 
@@ -8,7 +8,7 @@ A simple app with big easy to see from across room level meters to help you set 
 
 (Default settings)
 
-![SUG Screenshot](screenshot/sug-screenshot-v0.4.3.png)
+![SUG Screenshot](screenshot/sug-screenshot-v0.6.1.png)
 
 ## Description
 

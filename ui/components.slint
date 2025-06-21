@@ -386,3 +386,11 @@ export component AboutPopUp inherits PopupWindow {
         }
     }
 }
+
+export component VersionText inherits Text {
+    in-out property <string> version_number;
+    text: Theme.version-prefix + version_number;
+    font-size: Theme.version-text-size;
+    font-weight: Theme.text-weight-bold;
+    color: Theme.text-color;
+}

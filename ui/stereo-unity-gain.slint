@@ -1,5 +1,5 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, ModeSwitch, AboutPopUp} from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, ModeSwitch, AboutPopUp, VersionText} from "../ui/components.slint";
 import { Theme } from "../ui/theme.slint";
 import { StartButton } from "components.slint";
 
@@ -297,6 +297,12 @@ export component AppWindow inherits Window {
                 right_level_box := LevelBox {
                     value: right_level_box_value;
                     enabled: right_level_box_enabled;
+                }
+            }
+            HorizontalLayout {
+                padding: 10px;
+                VersionText {
+                    version_number: version_number;
                 }
             }
         }

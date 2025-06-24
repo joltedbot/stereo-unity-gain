@@ -17,7 +17,6 @@ pub struct DeviceList {
 
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct CurrentDevice {
-    pub index: i32,
     pub name: String,
     pub left_channel: String,
     pub right_channel: Option<String>,
@@ -25,14 +24,20 @@ pub struct CurrentDevice {
 
 pub struct DeviceManager {
     user_interface_sender: Sender<EventType>,
+    input_device_sender: Sender<EventType>,
+    output_device_sender: Sender<EventType>,
     input_devices: DeviceList,
     output_devices: DeviceList,
-    current_input_device: CurrentDevice,
+    initial_input_device: CurrentDevice,
     current_output_device: CurrentDevice,
 }
 
 impl DeviceManager {
-    pub fn new(user_interface_sender: Sender<EventType>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(
+        user_interface_sender: Sender<EventType>,
+        input_device_sender: Sender<EventType>,
+        output_device_sender: Sender<EventType>,
+    ) -> Result<Self, Box<dyn Error>> {
         let input_devices = get_input_device_list_from_host()?;
         let current_input_device = get_default_input_device_data(&input_devices)?;
         let output_devices = get_output_device_list_from_host()?;
@@ -40,9 +45,11 @@ impl DeviceManager {
 
         Ok(Self {
             user_interface_sender,
+            input_device_sender,
+            output_device_sender,
             input_devices,
             output_devices,
-            current_input_device,
+            initial_input_device: current_input_device,
             current_output_device,
         })
     }
@@ -51,17 +58,27 @@ impl DeviceManager {
         loop {
             let input_devices = get_input_device_list_from_host()?;
             let output_devices = get_output_device_list_from_host()?;
+
             if input_devices != self.input_devices {
                 self.input_devices = input_devices;
                 self.user_interface_sender
-                    .send(EventType::InputDevicesUpdate(self.input_devices.clone()))?;
+                    .send(EventType::InputDeviceListUpdate(self.input_devices.clone()))?;
+                self.input_device_sender
+                    .send(EventType::InputDeviceListUpdate(self.input_devices.clone()))?;
             }
 
             if output_devices != self.output_devices {
                 self.output_devices = output_devices;
                 self.user_interface_sender
-                    .send(EventType::OutputDevicesUpdate(self.output_devices.clone()))?;
+                    .send(EventType::OutputDeviceListUpdate(
+                        self.output_devices.clone(),
+                    ))?;
+                self.output_device_sender
+                    .send(EventType::OutputDeviceListUpdate(
+                        self.output_devices.clone(),
+                    ))?;
             }
+
             sleep(Duration::from_millis(
                 RUN_LOOP_SLEEP_DURATION_IN_MILLISECONDS,
             ));
@@ -76,7 +93,7 @@ impl DeviceManager {
     }
 
     pub fn get_current_input_device(&self) -> CurrentDevice {
-        self.current_input_device.clone()
+        self.initial_input_device.clone()
     }
 
     pub fn get_current_output_device(&self) -> CurrentDevice {
@@ -89,16 +106,12 @@ fn get_default_input_device_data(
 ) -> Result<CurrentDevice, Box<dyn Error>> {
     let host = default_host();
 
-    let device = host
-        .default_input_device()
-        .ok_or(LocalError::NoDefaultInputDevice)?;
+    let name = input_devices.devices[0].clone();
 
-    let name = device.name()?;
-    let index = input_devices
-        .devices
-        .iter()
-        .position(|i| i == &name)
-        .unwrap_or(0) as i32;
+    let device = host
+        .input_devices()?
+        .find(|device| device.name().iter().any(|device_name| device_name == &name))
+        .ok_or(LocalError::NoDefaultInputDevice)?;
 
     let default_input_channels = get_channel_list_from_input_device(&device);
 
@@ -111,7 +124,6 @@ fn get_default_input_device_data(
     };
 
     Ok(CurrentDevice {
-        index,
         name,
         left_channel,
         right_channel,
@@ -123,16 +135,12 @@ fn get_default_output_device_data(
 ) -> Result<CurrentDevice, Box<dyn Error>> {
     let host = default_host();
 
-    let device = host
-        .default_output_device()
-        .ok_or(LocalError::NoDefaultOutputDevice)?;
+    let name = output_devices.devices[0].clone();
 
-    let name = device.name()?;
-    let index = output_devices
-        .devices
-        .iter()
-        .position(|i| i == &name)
-        .unwrap_or(0) as i32;
+    let device = host
+        .output_devices()?
+        .find(|device| device.name().iter().any(|device_name| device_name == &name))
+        .ok_or(LocalError::NoDefaultOutputDevice)?;
 
     let default_output_channels = get_channel_list_from_output_device(&device);
 
@@ -145,7 +153,6 @@ fn get_default_output_device_data(
     };
 
     Ok(CurrentDevice {
-        index,
         name,
         left_channel,
         right_channel,
@@ -221,17 +228,19 @@ pub fn get_channel_indexes_from_channel_names(
     left_channel: &str,
     right_channel: &Option<String>,
 ) -> Result<(usize, Option<usize>), LocalError> {
-    let left_index = get_index_from_name(left_channel)?;
+    let left_index = get_channel_index_from_name(left_channel)?;
     let mut right_index: Option<usize> = None;
 
     if right_channel.is_some() {
-        right_index = Some(get_index_from_name(right_channel.as_ref().unwrap())?);
+        right_index = Some(get_channel_index_from_name(
+            right_channel.as_ref().unwrap(),
+        )?);
     }
 
     Ok((left_index, right_index))
 }
 
-fn get_index_from_name(channel: &str) -> Result<usize, LocalError> {
+fn get_channel_index_from_name(channel: &str) -> Result<usize, LocalError> {
     let channel_number = channel
         .parse::<usize>()
         .map_err(|err| LocalError::ChannelIndex(err.to_string()))?;
@@ -247,7 +256,7 @@ mod tests {
     fn return_correct_index_from_valid_channel_name() {
         let test_str = "3";
         let expected_result = 2;
-        let result = get_index_from_name(test_str).unwrap();
+        let result = get_channel_index_from_name(test_str).unwrap();
         assert_eq!(result, expected_result);
     }
 
@@ -255,7 +264,7 @@ mod tests {
     fn return_zero_index_from_channel_name_that_produces_a_negative_index() {
         let test_str = "0";
         let expected_result = 0;
-        let result = get_index_from_name(test_str).unwrap();
+        let result = get_channel_index_from_name(test_str).unwrap();
         assert_eq!(result, expected_result);
     }
 
@@ -263,7 +272,7 @@ mod tests {
     fn return_correct_error_from_alpha_channel_name() {
         let test_str = "abc";
         let expected_result = LocalError::ChannelIndex("invalid digit found in string".to_string());
-        let result = get_index_from_name(test_str).unwrap_err();
+        let result = get_channel_index_from_name(test_str).unwrap_err();
         assert_eq!(result, expected_result);
     }
 

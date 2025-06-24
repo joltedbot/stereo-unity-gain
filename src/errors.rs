@@ -57,6 +57,9 @@ pub enum LocalError {
 
     #[error("Failed to generate channel index: {0}")]
     ChannelIndex(String),
+
+    #[error("A device named {0} no longer exists on this host.")]
+    DeviceNameNotPresent(String),
 }
 
 pub fn handle_local_error(local_error: LocalError, specific_error: String) {

@@ -22,7 +22,6 @@ pub trait WaveShape {
 }
 
 pub struct ToneGenerator {
-    output_device: Device,
     output_stream: Stream,
     current_output_device: CurrentDevice,
     output_device_list: DeviceList,
@@ -42,11 +41,7 @@ impl ToneGenerator {
         ui_command_receiver: Receiver<EventType>,
         user_interface_sender: Sender<EventType>,
     ) -> Result<Self, Box<dyn Error>> {
-        let host = default_host();
-
-        let output_device = host
-            .default_output_device()
-            .ok_or(LocalError::NoDefaultOutputDevice)?;
+        let output_device = get_output_device_from_device_name(&current_output_device.name)?;
 
         let (left_output_channel_index, right_output_channel_index) =
             get_channel_indexes_from_channel_names(
@@ -71,7 +66,6 @@ impl ToneGenerator {
         output_stream.pause()?;
 
         Ok(Self {
-            output_device,
             current_output_device,
             sine_mode_enabled: sine_mode_arc,
             reference_frequency: reference_frequency_arc,
@@ -83,21 +77,13 @@ impl ToneGenerator {
         })
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         let ui_command_receiver = self.ui_command_receiver.clone();
         loop {
             if let Ok(event) = ui_command_receiver.try_recv() {
                 match event {
                     EventType::Start => self.start().expect("Could Not Start Tone Generator"),
                     EventType::Stop => self.stop().expect("Could Not Stop Tone Generator"),
-                    EventType::ToneDeviceUpdate { index, name } => {
-                        self.set_output_device_on_ui_callback((index, name))
-                            .expect("");
-                    }
-                    EventType::ToneChannelUpdate { left, right } => {
-                        self.set_output_channel_on_ui_callback(left, right)
-                            .expect("");
-                    }
                     EventType::ToneFrequencyUpdate(new_frequency) => {
                         if let Ok(mut freq) = self.reference_frequency.lock() {
                             *freq = new_frequency;
@@ -112,6 +98,17 @@ impl ToneGenerator {
                         if let Ok(mut sine_mode_enabled) = self.sine_mode_enabled.lock() {
                             *sine_mode_enabled = sine_enabled;
                         }
+                    }
+                    EventType::ToneDeviceUpdate { name, left, right } => {
+                        self.current_output_device = CurrentDevice {
+                            name,
+                            left_channel: left,
+                            right_channel: right,
+                        };
+                        self.set_output_device_on_ui_callback()?;
+                    }
+                    EventType::OutputDeviceListUpdate(device_list) => {
+                        self.output_device_list = device_list;
                     }
                     _ => (),
                 }
@@ -133,56 +130,10 @@ impl ToneGenerator {
         Ok(())
     }
 
-    pub fn set_output_device_on_ui_callback(
-        &mut self,
-        output_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
+    pub fn set_output_device_on_ui_callback(&mut self) -> Result<(), LocalError> {
         self.stop()?;
 
-        self.update_current_output_device(output_device_data)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-
-    pub fn update_current_output_device(
-        &mut self,
-        output_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
-        self.output_device =
-            self.get_output_device_from_device_name(output_device_data.1.clone())?;
-
-        let output_device_channels =
-            &self.output_device_list.channels[output_device_data.0 as usize];
-
-        let left_channel = output_device_channels[0].clone();
-        let right_channel = if output_device_channels.len() > 1 {
-            Some(output_device_channels[1].clone())
-        } else {
-            None
-        };
-
-        self.current_output_device = CurrentDevice {
-            index: output_device_data.0,
-            name: output_device_data.1,
-            left_channel,
-            right_channel,
-        };
-
-        self.set_output_device(self.current_output_device.clone())?;
-
-        Ok(())
-    }
-
-    pub fn set_output_channel_on_ui_callback(
-        &mut self,
-        left_output_channel: String,
-        right_output_channel: Option<String>,
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-
-        self.current_output_device.left_channel = left_output_channel;
-        self.current_output_device.right_channel = right_output_channel;
-
-        self.set_output_device(self.current_output_device.clone())?;
+        let output_device = get_output_device_from_device_name(&self.current_output_device.name)?;
 
         let (left_output_channel_index, right_output_channel_index) =
             get_channel_indexes_from_channel_names(
@@ -193,7 +144,7 @@ impl ToneGenerator {
         let user_interface_sender = self.user_interface_sender.clone();
 
         self.output_stream = create_output_steam(
-            &self.output_device,
+            &output_device,
             left_output_channel_index,
             right_output_channel_index,
             self.sine_mode_enabled.clone(),
@@ -208,54 +159,6 @@ impl ToneGenerator {
             .map_err(|err| LocalError::OutputStream(err.to_string()))?;
 
         Ok(())
-    }
-
-    pub fn set_output_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
-        self.output_device = self.get_output_device_from_device_name(device.name.clone())?;
-        self.current_output_device = device;
-
-        let (left_output_channel_index, right_output_channel_index) =
-            get_channel_indexes_from_channel_names(
-                &self.current_output_device.left_channel,
-                &self.current_output_device.right_channel,
-            )?;
-
-        let user_interface_sender = self.user_interface_sender.clone();
-
-        self.output_stream = create_output_steam(
-            &self.output_device,
-            left_output_channel_index,
-            right_output_channel_index,
-            self.sine_mode_enabled.clone(),
-            self.reference_frequency.clone(),
-            self.reference_level.clone(),
-            user_interface_sender,
-        )
-        .map_err(|err| LocalError::OutputStream(err.to_string()))?;
-
-        self.output_stream
-            .pause()
-            .map_err(|err| LocalError::OutputStream(err.to_string()))?;
-
-        Ok(())
-    }
-
-    fn get_output_device_from_device_name(
-        &mut self,
-        device_name: String,
-    ) -> Result<Device, LocalError> {
-        let host = default_host();
-
-        let mut output_devices = host
-            .output_devices()
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
-
-        match output_devices
-            .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
-        {
-            Some(device) => Ok(device),
-            None => Err(LocalError::DeviceNotFound(device_name)),
-        }
     }
 }
 
@@ -350,17 +253,25 @@ fn create_output_steam(
         .map_err(|err| LocalError::OutputStream(err.to_string()))
 }
 
+fn get_output_device_from_device_name(device_name: &str) -> Result<Device, LocalError> {
+    let host = default_host();
+
+    let mut output_devices = host
+        .output_devices()
+        .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
+
+    match output_devices
+        .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
+    {
+        Some(device) => Ok(device),
+        None => Err(LocalError::DeviceNotFound(device_name.to_string())),
+    }
+}
+
 pub fn get_default_device_data_from_output_device(
     device: &Device,
-    device_list: &[String],
 ) -> Result<CurrentDevice, Box<dyn Error>> {
     let name = device.name()?;
-
-    let index = device_list
-        .iter()
-        .position(|device_name| device_name == &name)
-        .map(|pos| pos as i32)
-        .unwrap_or(0);
 
     let default_output_channels = get_channel_list_from_output_device(device);
 
@@ -372,7 +283,6 @@ pub fn get_default_device_data_from_output_device(
     };
 
     Ok(CurrentDevice {
-        index,
         name,
         left_channel,
         right_channel,

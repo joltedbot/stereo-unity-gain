@@ -1,7 +1,5 @@
 # Stereo Unity Gain (SUG)
 
-
-
 A simple app with big easy to see from across room level meters to help you set your audio interfaces input gain to unity and balance stereo pairs. Or what ever else you want to do with it. Use your imagination.  If you come up with a novel use case please let me know.
 
 ## Screen Shot
@@ -14,12 +12,16 @@ A simple app with big easy to see from across room level meters to help you set 
 
 There are 2 stages to the application:
 
-#### Input Stage:
+#### Output Stage:
 
 An adjustable sine wave generator that lets you choose an output device and pair of ports to use to send the tone too. You can adjust the 
 frequency and outout level (in dbfs). The output level is calibrated to show the same output level as your DAW or other audio apps (or at least mine anyway: Ableton, Reaper, Audacity) would at the specified output level. 
 
-#### Output Stage:
+You can select between a sine wave and a square wave output. The square wave has been adjusted down in level to be the same peak reading as sine 
+wave. While this is artificial it makes allows you to switch back and forth at the same level which seemed like the desired behavior. In normal 
+operation the sine wave is probably the best choice. The square wave is there just in case you want to get create with the tool.
+
+#### Input Stage:
 
 A peak level meter. Level is calculated, like the output stage, based on what your DAW should see as peak dbfs from the inputs. It is NOT calculating intersample peaks and it does not do peak hold.
 
@@ -63,8 +65,7 @@ These are really just the high level steps. Hopefully you already have at least 
 
 ## Usage Steps
 
-- Connect the audio device/devices to your computer and make sure your OS recognizes them. 
-- The app does not currently check again for devices so if you need to rescan you need to restart the app. This is on my todo list.
+- Connect the audio device/devices to your computer and make sure your OS recognizes them.
 - Physically connect a pair of audio outputs to inputs
   - I just use a pair of balanced patch cables and plug the outputs to the inputs on my patch bay or right on the ports on the audio interface
 - Start Stereo Unity Gain

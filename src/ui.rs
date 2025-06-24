@@ -19,6 +19,7 @@ pub struct UI {
     pub ui: Weak<AppWindow>,
     level_meter_sender: Sender<EventType>,
     tone_generator_sender: Sender<EventType>,
+    user_interface_sender: Sender<EventType>,
     input_device_list: DeviceList,
     output_device_list: DeviceList,
     current_input_device: CurrentDevice,
@@ -30,6 +31,7 @@ impl UI {
         ui_mutex: Arc<Mutex<Weak<AppWindow>>>,
         tone_generator_sender: Sender<EventType>,
         level_meter_sender: Sender<EventType>,
+        user_interface_sender: Sender<EventType>,
     ) -> Result<Self, Box<dyn Error>> {
         let ui_weak = match ui_mutex.lock() {
             Ok(ui_guard) => ui_guard.clone(),
@@ -42,6 +44,7 @@ impl UI {
             ui: ui_weak,
             tone_generator_sender,
             level_meter_sender,
+            user_interface_sender,
             input_device_list: DeviceList::default(),
             output_device_list: DeviceList::default(),
             current_input_device: CurrentDevice::default(),
@@ -74,21 +77,116 @@ impl UI {
                             }
                         });
                     }
-                    EventType::InputDevicesUpdate(input_device_list) => {
-                        self.input_device_list = input_device_list.clone();
-                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_input_device_list(get_model_from_string_slice(
-                                &input_device_list.devices,
-                            ));
-                        });
+                    EventType::InputDeviceUpdate(device_name) => {
+                        self.update_current_input_device(device_name.clone())?;
+
+                        let level_meter_sender = self.level_meter_sender.clone();
+
+                        if let Err(error) = level_meter_sender.send(EventType::MeterDeviceUpdate {
+                            name: device_name,
+                            left: self.current_input_device.left_channel.clone(),
+                            right: self.current_input_device.right_channel.clone(),
+                        }) {
+                            handle_ui_error(&ui_weak, &error.to_string());
+                        };
                     }
-                    EventType::OutputDevicesUpdate(output_device_list) => {
+                    EventType::OutputDeviceUpdate(device_name) => {
+                        self.update_current_output_device(device_name.clone())?;
+
+                        let tone_generator_sender = self.tone_generator_sender.clone();
+                        if let Err(error) =
+                            tone_generator_sender.send(EventType::ToneDeviceUpdate {
+                                name: device_name,
+                                left: self.current_output_device.left_channel.clone(),
+                                right: self.current_output_device.right_channel.clone(),
+                            })
+                        {
+                            handle_ui_error(&ui_weak, &error.to_string());
+                        };
+                    }
+                    EventType::InputChannelUpdate { left, right } => {
+                        self.current_input_device.left_channel = left.clone();
+                        self.current_input_device.right_channel = right.clone();
+
+                        if let Err(error) =
+                            self.level_meter_sender.send(EventType::MeterDeviceUpdate {
+                                name: self.current_input_device.name.clone(),
+                                left,
+                                right,
+                            })
+                        {
+                            handle_ui_error(&ui_weak, &error.to_string());
+                        };
+                    }
+                    EventType::OutputChannelUpdate { left, right } => {
+                        self.current_output_device.left_channel = left.clone();
+                        self.current_output_device.right_channel = right.clone();
+
+                        if let Err(error) =
+                            self.tone_generator_sender
+                                .send(EventType::ToneDeviceUpdate {
+                                    name: self.current_output_device.name.clone(),
+                                    left: left.clone(),
+                                    right: right.clone(),
+                                })
+                        {
+                            handle_ui_error(&ui_weak, &error.to_string());
+                        };
+                    }
+                    EventType::InputDeviceListUpdate(input_device_list) => {
+                        self.input_device_list = input_device_list.clone();
+
+                        if !self
+                            .input_device_list
+                            .devices
+                            .contains(&self.current_input_device.name)
+                        {
+                            self.send_stop_all();
+
+                            let device_name = self.input_device_list.devices[0].clone();
+                            self.update_current_input_device(device_name.clone())?;
+
+                            let level_meter_sender = self.level_meter_sender.clone();
+
+                            if let Err(error) =
+                                level_meter_sender.send(EventType::MeterDeviceUpdate {
+                                    name: device_name,
+                                    left: self.current_input_device.left_channel.clone(),
+                                    right: self.current_input_device.right_channel.clone(),
+                                })
+                            {
+                                handle_ui_error(&ui_weak, &error.to_string());
+                            };
+                        }
+
+                        self.initialize_displayed_input_device_data()?;
+                    }
+                    EventType::OutputDeviceListUpdate(output_device_list) => {
                         self.output_device_list = output_device_list.clone();
-                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_output_device_list(get_model_from_string_slice(
-                                &output_device_list.devices,
-                            ));
-                        });
+
+                        if !self
+                            .output_device_list
+                            .devices
+                            .contains(&self.current_output_device.name)
+                        {
+                            self.send_stop_all();
+
+                            let device_name = self.output_device_list.devices[0].clone();
+                            self.update_current_output_device(device_name.clone())?;
+
+                            let tone_generator_sender = self.tone_generator_sender.clone();
+                            if let Err(error) =
+                                tone_generator_sender.send(EventType::ToneDeviceUpdate {
+                                    name: device_name,
+                                    left: self.current_output_device.left_channel.clone(),
+                                    right: self.current_output_device.right_channel.clone(),
+                                })
+                            {
+                                handle_ui_error(&ui_weak, &error.to_string());
+                            };
+                        }
+
+                        self.initialize_displayed_output_device_data()?;
                     }
                     EventType::Exit => {
                         break;
@@ -117,43 +215,63 @@ impl UI {
 
         let ui_weak = self.ui.clone();
 
-        let left_input_channel = self.current_input_device.left_channel.clone();
-        let right_input_channel = self.current_input_device.right_channel.clone();
-        let left_output_channel = self.current_output_device.left_channel.clone();
-        let right_output_channel = self.current_output_device.right_channel.clone();
-        let input_device_list = self.input_device_list.clone();
-        let output_device_list = self.output_device_list.clone();
-        let current_input_device = self.current_input_device.clone();
-        let current_output_device = self.current_output_device.clone();
-
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             ui.set_version_number(SharedString::from(VERSION.to_string()));
-
             ui.set_description(SharedString::from(DESCRIPTION.to_string()));
-
             ui.set_license(SharedString::from(LICENSE.to_string()));
-
-            ui.set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
-            ui.set_output_device_list(get_model_from_string_slice(&output_device_list.devices));
-
-            ui.set_input_channel_list(get_model_from_string_slice(
-                &input_device_list.channels[current_input_device.index as usize].clone(),
-            ));
-
-            ui.set_output_channel_list(get_model_from_string_slice(
-                &output_device_list.channels[current_output_device.index as usize].clone(),
-            ));
-
             ui.set_reference_frequency(reference_frequency);
             ui.set_reference_level(reference_level);
+        });
+
+        self.initialize_displayed_device_data()?;
+
+        Ok(())
+    }
+
+    fn initialize_displayed_device_data(&mut self) -> Result<(), Box<dyn Error>> {
+        self.initialize_displayed_input_device_data()?;
+        self.initialize_displayed_output_device_data()?;
+        Ok(())
+    }
+
+    fn initialize_displayed_input_device_data(&mut self) -> Result<(), Box<dyn Error>> {
+        let current_input_device = self.current_input_device.clone();
+        let input_device_list = self.input_device_list.clone();
+
+        let ui_weak = self.ui.clone();
+
+        ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_input_device_list(get_model_from_string_slice(input_device_list.devices));
+            ui.set_current_input_device(SharedString::from(current_input_device.name.clone()));
+        })?;
+
+        self.update_input_device_display_data(self.current_input_device.name.clone())?;
+
+        Ok(())
+    }
+
+    fn initialize_displayed_output_device_data(&mut self) -> Result<(), Box<dyn Error>> {
+        let ui_weak = self.ui.clone();
+
+        let left_output_channel = self.current_output_device.left_channel.clone();
+        let right_output_channel = self.current_output_device.right_channel.clone();
+        let output_device_list = self.output_device_list.clone();
+        let current_output_device = self.current_output_device.clone();
+        let output_device_index = get_current_device_index_from_device_list(
+            &output_device_list,
+            &current_output_device.name,
+        )?;
+
+        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_output_device_list(get_model_from_string_slice(output_device_list.devices));
+
+            ui.set_output_channel_list(get_model_from_string_slice(
+                output_device_list.channels[output_device_index as usize].clone(),
+            ));
 
             ui.set_current_output_device(SharedString::from(current_output_device.name.clone()));
 
             ui.set_left_current_output_channel(SharedString::from(left_output_channel));
-
-            ui.set_current_input_device(SharedString::from(current_input_device.name.clone()));
-
-            ui.set_left_current_input_channel(SharedString::from(left_input_channel));
 
             match &right_output_channel {
                 None => ui.set_right_output_enabled(false),
@@ -162,6 +280,78 @@ impl UI {
                     ui.set_right_current_output_channel(SharedString::from(channel));
                 }
             }
+        });
+
+        Ok(())
+    }
+
+    fn update_current_input_device(&mut self, device_name: String) -> Result<(), Box<dyn Error>> {
+        self.current_input_device.name = device_name.clone();
+
+        let device_index = self
+            .input_device_list
+            .devices
+            .iter()
+            .position(|i| *i == device_name)
+            .unwrap_or(0);
+
+        let input_channels = self.input_device_list.channels[device_index].clone();
+
+        self.current_input_device.left_channel = input_channels[0].clone();
+
+        self.current_input_device.right_channel = if input_channels.len() > 1 {
+            Some(input_channels[1].clone())
+        } else {
+            None
+        };
+
+        self.update_input_device_display_data(device_name)?;
+
+        Ok(())
+    }
+
+    fn update_current_output_device(&mut self, device_name: String) -> Result<(), Box<dyn Error>> {
+        self.current_output_device.name = device_name.clone();
+
+        let device_index = self
+            .output_device_list
+            .devices
+            .iter()
+            .position(|i| *i == device_name)
+            .unwrap_or(0);
+        let output_channels = self.output_device_list.channels[device_index].clone();
+
+        self.current_output_device.left_channel = output_channels[0].clone();
+
+        self.current_output_device.right_channel = if output_channels.len() > 1 {
+            Some(output_channels[1].clone())
+        } else {
+            None
+        };
+
+        self.update_output_device_display_data(device_name)?;
+
+        Ok(())
+    }
+
+    fn update_input_device_display_data(
+        &mut self,
+        device_name: String,
+    ) -> Result<(), Box<dyn Error>> {
+        let left_input_channel = self.current_input_device.left_channel.clone();
+        let right_input_channel = self.current_input_device.right_channel.clone();
+        let input_device_list = self.input_device_list.clone();
+        let ui_weak = self.ui.clone();
+
+        let input_device_index =
+            get_current_device_index_from_device_list(&input_device_list, &device_name)?;
+
+        ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_input_channel_list(get_model_from_string_slice(
+                input_device_list.channels[input_device_index as usize].clone(),
+            ));
+
+            ui.set_left_current_input_channel(SharedString::from(left_input_channel));
 
             match &right_input_channel {
                 None => {
@@ -174,7 +364,41 @@ impl UI {
                     ui.set_right_current_input_channel(SharedString::from(channel));
                 }
             }
-        });
+        })?;
+
+        Ok(())
+    }
+    fn update_output_device_display_data(
+        &mut self,
+        device_name: String,
+    ) -> Result<(), Box<dyn Error>> {
+        let left_output_channel = self.current_output_device.left_channel.clone();
+        let right_output_channel = self.current_output_device.right_channel.clone();
+        let output_device_list = self.output_device_list.clone();
+        let output_device_index =
+            get_current_device_index_from_device_list(&output_device_list, &device_name)?;
+
+        let ui_weak = self.ui.clone();
+
+        ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_output_channel_list(get_model_from_string_slice(
+                output_device_list.channels[output_device_index as usize].clone(),
+            ));
+
+            ui.set_left_current_output_channel(SharedString::from(left_output_channel));
+
+            match &right_output_channel {
+                None => {
+                    ui.set_right_output_enabled(false);
+                    ui.set_right_level_box_enabled(false);
+                }
+                Some(channel) => {
+                    ui.set_right_output_enabled(true);
+                    ui.set_right_level_box_enabled(true);
+                    ui.set_right_current_output_channel(SharedString::from(channel));
+                }
+            }
+        })?;
 
         Ok(())
     }
@@ -242,33 +466,16 @@ impl UI {
             }
         };
 
-        let level_meter_sender = self.level_meter_sender.clone();
-        let input_device_list = self.input_device_list.clone();
+        let user_interface_sender = self.user_interface_sender.clone();
 
-        ui.on_selected_input_device(move |index, device| {
-            let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-            if let Err(error) = level_meter_sender.send(EventType::MeterDeviceUpdate {
-                index,
-                name: device.to_string(),
-            }) {
+        ui.on_selected_input_device(move |device| {
+            let device_name = device.to_string();
+
+            if let Err(error) =
+                user_interface_sender.send(EventType::InputDeviceUpdate(device_name.clone()))
+            {
                 handle_ui_error(&ui_weak, &error.to_string());
             };
-
-            let input_channels = &input_device_list.channels[index as usize];
-            let left_channel = input_channels[0].clone();
-
-            if input_channels.len() > 1 {
-                ui.set_right_input_enabled(true);
-                ui.set_right_level_box_enabled(true);
-                ui.set_right_current_input_channel(SharedString::from(input_channels[1].clone()));
-            } else {
-                ui.set_right_input_enabled(false);
-                ui.set_right_level_box_enabled(false);
-            }
-
-            let input_channel_model = get_model_from_string_slice(input_channels);
-            ui.set_input_channel_list(input_channel_model);
-            ui.set_left_current_input_channel(SharedString::from(left_channel));
         });
     }
 
@@ -282,33 +489,14 @@ impl UI {
             }
         };
 
-        let tone_generator_sender = self.tone_generator_sender.clone();
-        let output_device_list = self.output_device_list.clone();
+        let user_interface_sender = self.user_interface_sender.clone();
 
-        ui.on_selected_output_device(move |index, device| {
-            let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-            if let Err(error) = tone_generator_sender.send(EventType::ToneDeviceUpdate {
-                index,
-                name: device.to_string(),
-            }) {
+        ui.on_selected_output_device(move |device| {
+            if let Err(error) =
+                user_interface_sender.send(EventType::OutputDeviceUpdate(device.to_string()))
+            {
                 handle_ui_error(&ui_weak, &error.to_string());
             };
-
-            let output_channels = &output_device_list.channels[index as usize];
-            let left_channel = output_channels[0].clone();
-
-            if output_channels.len() > 1 {
-                ui.set_right_output_enabled(true);
-                ui.set_right_level_box_enabled(true);
-                ui.set_right_current_output_channel(SharedString::from(output_channels[1].clone()));
-            } else {
-                ui.set_right_output_enabled(false);
-                ui.set_right_level_box_enabled(false);
-            }
-
-            let output_channel_model = get_model_from_string_slice(output_channels);
-            ui.set_output_channel_list(output_channel_model);
-            ui.set_left_current_output_channel(SharedString::from(left_channel));
         });
     }
 
@@ -325,7 +513,7 @@ impl UI {
             }
         };
 
-        let input_channel_sender = self.level_meter_sender.clone();
+        let user_interface_sender = self.user_interface_sender.clone();
 
         ui.on_selected_input_channel(move |left_channel, right_channel| {
             let left_input_channel = left_channel.to_string();
@@ -335,7 +523,7 @@ impl UI {
                 Some(right_channel.to_string())
             };
 
-            if let Err(error) = input_channel_sender.send(EventType::MeterChannelUpdate {
+            if let Err(error) = user_interface_sender.send(EventType::InputChannelUpdate {
                 left: left_input_channel,
                 right: right_input_channel,
             }) {
@@ -357,7 +545,7 @@ impl UI {
             }
         };
 
-        let output_channel_sender = self.tone_generator_sender.clone();
+        let user_interface_sender = self.user_interface_sender.clone();
 
         ui.on_selected_output_channel(move |left_channel, right_channel| {
             let left_output_channel = left_channel.to_string();
@@ -367,7 +555,7 @@ impl UI {
                 Some(right_channel.to_string())
             };
 
-            if let Err(error) = output_channel_sender.send(EventType::ToneChannelUpdate {
+            if let Err(error) = user_interface_sender.send(EventType::OutputChannelUpdate {
                 left: left_output_channel,
                 right: right_output_channel,
             }) {
@@ -489,15 +677,50 @@ impl UI {
             });
         });
     }
+
+    fn send_stop_all(&self) {
+        let ui_weak = self.ui.clone();
+
+        let _ = ui_weak.upgrade_in_event_loop(|ui| {
+            ui.set_start_button_active(false);
+        });
+
+        if let Err(error) = self.level_meter_sender.send(EventType::Stop) {
+            eprintln!("Error sending event: {}", error);
+            handle_ui_error(&ui_weak, &error.to_string());
+        };
+
+        if let Err(error) = self.tone_generator_sender.send(EventType::Stop) {
+            eprintln!("Error sending event: {}", error);
+            handle_ui_error(&ui_weak, &error.to_string());
+        };
+    }
 }
 
-pub fn get_model_from_string_slice(devices: &[String]) -> ModelRc<SharedString> {
+fn get_current_device_index_from_device_list(
+    device_list: &DeviceList,
+    device_name: &str,
+) -> Result<i32, LocalError> {
+    let index = match device_list
+        .devices
+        .iter()
+        .position(|name| name == device_name)
+    {
+        Some(index) => index as i32,
+        None => return Err(LocalError::DeviceNameNotPresent(String::from(device_name))),
+    };
+    Ok(index)
+}
+
+pub fn get_model_from_string_slice(devices: Vec<String>) -> ModelRc<SharedString> {
     let name_list: Vec<SharedString> = devices.iter().map(SharedString::from).collect();
     ModelRc::new(VecModel::from_slice(name_list.as_slice()))
 }
 
 pub fn handle_ui_error(ui_weak: &Weak<AppWindow>, error_message: &str) {
-    let ui = ui_weak.upgrade().expect(FATAL_ERROR_MESSAGE_UI_ERROR);
-    ui.set_error_message(SharedString::from(error_message.to_string()));
-    ui.set_error_dialog_visible(true);
+    let error = error_message.to_string();
+    let _ = ui_weak.upgrade_in_event_loop(|ui| {
+        ui.set_error_message(SharedString::from(error));
+        ui.set_error_dialog_visible(true);
+    });
 }

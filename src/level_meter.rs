@@ -2,7 +2,7 @@ use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::events::EventType;
 use cpal::traits::*;
-use cpal::{Device, Host, Stream, default_host};
+use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::error::Error;
@@ -25,7 +25,6 @@ struct SampleFrameBuffer {
 }
 
 pub struct LevelMeter {
-    input_device: Device,
     input_stream: Stream,
     current_input_device: CurrentDevice,
     input_device_list: DeviceList,
@@ -38,19 +37,12 @@ pub struct LevelMeter {
 
 impl LevelMeter {
     pub fn new(
+        input_device_list: DeviceList,
+        current_input_device: CurrentDevice,
         ui_command_receiver: Receiver<EventType>,
         default_reference_level: f32,
     ) -> Result<Self, Box<dyn Error>> {
-        let host = default_host();
-
-        let input_device_list = get_input_device_list_from_host(&host)?;
-
-        let input_device = host
-            .default_input_device()
-            .ok_or(LocalError::NoDefaultInputDevice)?;
-
-        let current_input_device =
-            get_default_device_data_from_input_device(&input_device, &input_device_list.devices)?;
+        let input_device = get_input_device_from_device_name(&current_input_device.name)?;
 
         let (left_input_channel_index, right_input_channel_index) =
             get_channel_indexes_from_channel_names(
@@ -75,7 +67,6 @@ impl LevelMeter {
         let reference_level = Arc::new(Mutex::new(default_reference_level));
 
         Ok(Self {
-            input_device,
             input_stream,
             sample_consumer: Arc::new(Mutex::new(sample_consumer)),
             sample_producer: sample_producer_mutex,
@@ -85,6 +76,60 @@ impl LevelMeter {
             delta_mode_enabled,
             reference_level,
         })
+    }
+
+    pub fn run(
+        &mut self,
+        level_meter_display_sender: Sender<EventType>,
+    ) -> Result<(), Box<dyn Error>> {
+        self.start_level_meter(level_meter_display_sender)?;
+
+        let event_consumer = self.ui_command_receiver.clone();
+
+        loop {
+            if let Ok(event) = event_consumer.try_recv() {
+                match event {
+                    EventType::MeterModeUpdate(new_delta_mode) => {
+                        match self.delta_mode_enabled.lock() {
+                            Ok(mut delta_mode) => *delta_mode = new_delta_mode,
+                            Err(_) => {
+                                handle_local_error(
+                                    LocalError::LevelMeterInitialization,
+                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                );
+                                exit(EXIT_CODE_ERROR);
+                            }
+                        };
+                    }
+                    EventType::ToneLevelUpdate(new_level) => {
+                        match self.reference_level.lock() {
+                            Ok(mut level) => *level = new_level,
+                            Err(_) => {
+                                handle_local_error(
+                                    LocalError::LevelMeterInitialization,
+                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
+                                );
+                                exit(EXIT_CODE_ERROR);
+                            }
+                        };
+                    }
+                    EventType::MeterDeviceUpdate { name, left, right } => {
+                        self.current_input_device = CurrentDevice {
+                            name,
+                            left_channel: left,
+                            right_channel: right,
+                        };
+                        self.set_input_device_on_ui_callback()?;
+                    }
+                    EventType::InputDeviceListUpdate(device_list) => {
+                        self.input_device_list = device_list;
+                    }
+                    EventType::Start => self.start()?,
+                    EventType::Stop => self.stop()?,
+                    _ => (),
+                }
+            };
+        }
     }
 
     pub fn start(&mut self) -> Result<(), LocalError> {
@@ -102,63 +147,10 @@ impl LevelMeter {
         Ok(())
     }
 
-    pub fn get_current_input_device(&self) -> CurrentDevice {
-        self.current_input_device.clone()
-    }
-
-    pub fn get_input_device_list(&self) -> DeviceList {
-        self.input_device_list.clone()
-    }
-
-    pub fn get_current_input_device_channels(&self) -> Vec<String> {
-        self.input_device_list.channels[self.current_input_device.index as usize].clone()
-    }
-
-    pub fn set_input_device_on_ui_callback(
-        &mut self,
-        input_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
-        self.stop()?;
-        self.update_current_input_device(input_device_data)
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))
-    }
-
-    pub fn update_current_input_device(
-        &mut self,
-        input_device_data: (i32, String),
-    ) -> Result<(), LocalError> {
-        self.input_device = self.get_input_device_from_device_name(input_device_data.1.clone())?;
-
-        let input_device_channels = &self.input_device_list.channels[input_device_data.0 as usize];
-
-        let left_channel = input_device_channels[0].clone();
-        let right_channel = if input_device_channels.len() > 1 {
-            Some(input_device_channels[1].clone())
-        } else {
-            None
-        };
-
-        self.current_input_device = CurrentDevice {
-            index: input_device_data.0,
-            name: input_device_data.1,
-            left_channel,
-            right_channel,
-        };
-
-        self.set_input_device(self.current_input_device.clone())?;
-
-        Ok(())
-    }
-
-    pub fn set_input_channel_on_ui_callback(
-        &mut self,
-        left_input_channel: String,
-        right_input_channel: Option<String>,
-    ) -> Result<(), LocalError> {
+    pub fn set_input_device_on_ui_callback(&mut self) -> Result<(), LocalError> {
         self.stop()?;
 
-        self.current_input_device.left_channel = left_input_channel;
-        self.current_input_device.right_channel = right_input_channel;
+        let input_device = get_input_device_from_device_name(&self.current_input_device.name)?;
 
         let (left_input_channel_index, right_input_channel_index) =
             get_channel_indexes_from_channel_names(
@@ -167,7 +159,7 @@ impl LevelMeter {
             )?;
 
         self.input_stream = create_input_stream(
-            &self.input_device,
+            &input_device,
             left_input_channel_index,
             right_input_channel_index,
             self.sample_producer.clone(),
@@ -179,68 +171,6 @@ impl LevelMeter {
             .map_err(|err| LocalError::InputStream(err.to_string()))?;
 
         Ok(())
-    }
-
-    fn set_input_device(&mut self, device: CurrentDevice) -> Result<(), LocalError> {
-        self.input_device = self.get_input_device_from_device_name(device.name.clone())?;
-        self.current_input_device = device;
-
-        let (left_input_channel_index, right_input_channel_index) =
-            get_channel_indexes_from_channel_names(
-                &self.current_input_device.left_channel,
-                &self.current_input_device.right_channel,
-            )?;
-
-        self.input_stream = create_input_stream(
-            &self.input_device,
-            left_input_channel_index,
-            right_input_channel_index,
-            self.sample_producer.clone(),
-        )
-        .map_err(|err| LocalError::InputStream(err.to_string()))?;
-
-        self.input_stream
-            .pause()
-            .map_err(|err| LocalError::InputStream(err.to_string()))?;
-
-        Ok(())
-    }
-
-    fn get_input_device_from_device_name(
-        &mut self,
-        device_name: String,
-    ) -> Result<Device, LocalError> {
-        let host = default_host();
-
-        let mut input_devices = host
-            .input_devices()
-            .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
-
-        match input_devices
-            .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
-        {
-            Some(device) => Ok(device),
-            None => Err(LocalError::DeviceNotFound(device_name)),
-        }
-    }
-
-    pub fn reset_to_default_input_device(&mut self) -> Result<CurrentDevice, LocalError> {
-        self.stop()?;
-
-        let host = default_host();
-        let default_input_device = host
-            .default_input_device()
-            .ok_or(LocalError::NoDefaultInputDevice)?;
-
-        let input_device_list = &self.input_device_list.devices;
-
-        let current_input_device =
-            get_default_device_data_from_input_device(&default_input_device, input_device_list)
-                .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
-
-        self.set_input_device(self.current_input_device.clone())?;
-
-        Ok(current_input_device)
     }
 
     pub fn start_level_meter(
@@ -351,57 +281,6 @@ impl LevelMeter {
 
         Ok(())
     }
-
-    pub fn run(
-        &mut self,
-        level_meter_display_sender: Sender<EventType>,
-    ) -> Result<(), Box<dyn Error>> {
-        self.start_level_meter(level_meter_display_sender)?;
-
-        let event_consumer = self.ui_command_receiver.clone();
-
-        loop {
-            if let Ok(event) = event_consumer.try_recv() {
-                match event {
-                    EventType::MeterModeUpdate(new_delta_mode) => {
-                        match self.delta_mode_enabled.lock() {
-                            Ok(mut delta_mode) => *delta_mode = new_delta_mode,
-                            Err(_) => {
-                                handle_local_error(
-                                    LocalError::LevelMeterInitialization,
-                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
-                                );
-                                exit(EXIT_CODE_ERROR);
-                            }
-                        };
-                    }
-                    EventType::ToneLevelUpdate(new_level) => {
-                        match self.reference_level.lock() {
-                            Ok(mut level) => *level = new_level,
-                            Err(_) => {
-                                handle_local_error(
-                                    LocalError::LevelMeterInitialization,
-                                    ERROR_MESSAGE_RUN_LOOP.to_string(),
-                                );
-                                exit(EXIT_CODE_ERROR);
-                            }
-                        };
-                    }
-                    EventType::Start => self.start().expect("Could Not Start Level Meter"),
-                    EventType::Stop => self.stop().expect("Could Not Stop Level Meter"),
-                    EventType::MeterDeviceUpdate { index, name } => {
-                        self.set_input_device_on_ui_callback((index, name))
-                            .expect("");
-                    }
-                    EventType::MeterChannelUpdate { left, right } => {
-                        self.set_input_channel_on_ui_callback(left, right)
-                            .expect("");
-                    }
-                    _ => (),
-                }
-            };
-        }
-    }
 }
 
 fn create_input_stream(
@@ -479,64 +358,19 @@ fn create_input_stream(
         .map_err(|err| LocalError::InputStream(err.to_string()))
 }
 
-fn get_default_device_data_from_input_device(
-    device: &Device,
-    device_list: &[String],
-) -> Result<CurrentDevice, Box<dyn Error>> {
-    let name = device.name()?;
-    let index = device_list.iter().position(|i| i == &name).unwrap_or(0) as i32;
+fn get_input_device_from_device_name(device_name: &str) -> Result<Device, LocalError> {
+    let host = default_host();
 
-    let default_input_channels = get_channel_list_from_input_device(device);
+    let mut input_devices = host
+        .input_devices()
+        .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
 
-    let left_channel = default_input_channels[0].clone();
-
-    let right_channel = if default_input_channels.len() > 1 {
-        Some(default_input_channels[1].clone())
-    } else {
-        None
-    };
-
-    Ok(CurrentDevice {
-        index,
-        name,
-        left_channel,
-        right_channel,
-    })
-}
-
-fn get_channel_list_from_input_device(input_device: &Device) -> Vec<String> {
-    let supported_input_configs = input_device.supported_input_configs();
-
-    if let Ok(configs) = supported_input_configs {
-        match configs.last() {
-            None => (),
-            Some(config) => {
-                let number_of_input_channels = config.channels();
-                return (1..=number_of_input_channels)
-                    .map(|i| i.to_string())
-                    .collect();
-            }
-        }
+    match input_devices
+        .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
+    {
+        Some(device) => Ok(device),
+        None => Err(LocalError::DeviceNotFound(device_name.to_string())),
     }
-
-    Vec::new()
-}
-
-fn get_input_device_list_from_host(host: &Host) -> Result<DeviceList, Box<dyn Error>> {
-    let mut input_devices: Vec<String> = Vec::new();
-    let mut input_channels: Vec<Vec<String>> = Vec::new();
-
-    host.input_devices()?.for_each(|device| {
-        if let Ok(name) = device.name() {
-            input_devices.push(name);
-            input_channels.push(get_channel_list_from_input_device(&device));
-        }
-    });
-
-    Ok(DeviceList {
-        devices: input_devices,
-        channels: input_channels,
-    })
 }
 
 fn get_peak_of_sine_wave_samples(samples: &mut [f32]) -> f32 {
@@ -549,10 +383,7 @@ fn get_dbfs_from_sample_value(sample: f32) -> f32 {
 }
 
 fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
-    if peak_delta_value == f32::NEG_INFINITY
-        || peak_delta_value == f32::INFINITY
-        || peak_delta_value.is_nan()
-    {
+    if peak_delta_value.is_infinite() || peak_delta_value.is_nan() {
         "-".to_string()
     } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
         "0.0".to_string()

@@ -42,7 +42,6 @@ export component LevelBox inherits Rectangle {
             } else if (self.text.to-float() > 0.1) {
                 box-background.background = Theme.level-box-background-high;
             } else if (!enabled) {
-               self.text = Theme.level-box-default-value;
                box-background.background = Theme.level-box-background-start;
             } else {
                 box-background.background = Theme.level-box-background-correct;
@@ -53,16 +52,16 @@ export component LevelBox inherits Rectangle {
 
 export component DeviceSelector inherits Rectangle {
     in-out property <[string]> device_list;
-    in-out property <string> current;
-    in-out property <int> current_index: selector.current-index;
+    in-out property <string> current-device;
     callback selected_device(string);
+    width: Theme.device-selector-width;
 
     HorizontalLayout {
         spacing: 8px;
         selector := ComboBox {
             model: device_list;
             height: Theme.combobox-height;
-            current-value: current;
+            current-value: current-device;
             y: (parent.height / 2) - (self.height / 2);
 
             selected(value) => {

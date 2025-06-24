@@ -14,7 +14,6 @@ impl WaveShape for Square {
     fn new(sample_rate: f32) -> Self {
         let x_coord = 0.0;
         let x_increment = 1.0;
-        let sample_rate = sample_rate;
 
         Self {
             x_coord,

@@ -20,8 +20,8 @@ export component AppWindow inherits Window {
     in-out property <string> current_input_device;
     in-out property <[string]> output_device_list;
     in-out property <string> current_output_device;
-    callback selected_input_device(int, string);
-    callback selected_output_device(int, string);
+    callback selected_input_device(string);
+    callback selected_output_device(string);
 
     in-out property <[string]> input_channel_list;
     in-out property <string> left_current_input_channel;
@@ -168,9 +168,9 @@ export component AppWindow inherits Window {
 
                         output_device := DeviceSelector {
                             device_list: output_device_list;
-                            current: current_output_device;
+                            current-device: current_output_device;
                             selected_device(device) => {
-                                root.selected_output_device(self.current_index, device);
+                                root.selected_output_device(device);
                                 start_button.active = false;
                                 root.start_button_pressed(false);
                             }
@@ -178,9 +178,9 @@ export component AppWindow inherits Window {
 
                         input_device := DeviceSelector {
                             device_list: input_device_list;
-                            current: current_input_device;
+                            current-device: current_input_device;
                             selected_device(device) => {
-                                root.selected_input_device(self.current_index, device);
+                                root.selected_input_device(device);
                                 start_button.active = false;
                                 root.start_button_pressed(false);
                             }

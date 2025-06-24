@@ -3,17 +3,36 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventType {
-    MeterLevelUpdate { left: String, right: String },
+    MeterLevelUpdate {
+        left: String,
+        right: String,
+    },
     MeterModeUpdate(bool),
-    MeterDeviceUpdate { index: i32, name: String },
-    MeterChannelUpdate { left: String, right: Option<String> },
+    MeterDeviceUpdate {
+        name: String,
+        left: String,
+        right: Option<String>,
+    },
     ToneFrequencyUpdate(f32),
     ToneLevelUpdate(f32),
-    ToneDeviceUpdate { index: i32, name: String },
-    ToneChannelUpdate { left: String, right: Option<String> },
+    ToneDeviceUpdate {
+        name: String,
+        left: String,
+        right: Option<String>,
+    },
     ToneModeUpdate(bool),
-    InputDevicesUpdate(DeviceList),
-    OutputDevicesUpdate(DeviceList),
+    InputDeviceListUpdate(DeviceList),
+    OutputDeviceListUpdate(DeviceList),
+    InputDeviceUpdate(String),
+    OutputDeviceUpdate(String),
+    InputChannelUpdate {
+        left: String,
+        right: Option<String>,
+    },
+    OutputChannelUpdate {
+        left: String,
+        right: Option<String>,
+    },
     FatalError(String),
     Start,
     Stop,

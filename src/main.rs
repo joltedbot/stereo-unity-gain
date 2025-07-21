@@ -11,17 +11,24 @@ use crate::events::EventType;
 use crate::events::Events;
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
-use crate::ui::{AppWindow, UI};
+use crate::ui::UI;
 use crossbeam_channel::{Receiver, Sender};
+use log::info;
 use slint::ComponentHandle;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+slint::include_modules!();
+
 const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
 const DEFAULT_REFERENCE_LEVEL: i32 = -18;
 
 fn main() -> Result<(), slint::PlatformError> {
+    env_logger::init();
+
+    info!("Stereo Unity Gain Started");
+
     // Initialize Slint Application
     let application = AppWindow::new()?;
 
@@ -111,21 +118,31 @@ fn main() -> Result<(), slint::PlatformError> {
     let current_input_device = device_manager.get_current_input_device();
 
     thread::spawn(move || {
-        let mut level_meter = match LevelMeter::new(
-            input_device_list,
-            current_input_device,
-            level_meter_receiver,
-            DEFAULT_REFERENCE_LEVEL as f32,
-        ) {
-            Ok(level_meter) => level_meter,
-            Err(error) => {
-                handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
-                exit(EXIT_CODE_ERROR);
-            }
-        };
+        let mut level_meter =
+            match LevelMeter::new(level_meter_receiver, DEFAULT_REFERENCE_LEVEL as f32) {
+                Ok(level_meter) => level_meter,
+                Err(error) => {
+                    handle_local_error(
+                        LocalError::LevelMeterInitialization(error.to_string()),
+                        String::new(),
+                    );
+                    exit(EXIT_CODE_ERROR);
+                }
+            };
 
-        if let Err(error) = level_meter.run(level_meter_ui_sender) {
-            handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
+        if let Err(error) = level_meter.run_input_sample_processor(level_meter_ui_sender) {
+            handle_local_error(
+                LocalError::LevelMeterInitialization(error.to_string()),
+                String::new(),
+            );
+            exit(EXIT_CODE_ERROR);
+        }
+
+        if let Err(error) = level_meter.run() {
+            handle_local_error(
+                LocalError::LevelMeterInitialization(error.to_string()),
+                String::new(),
+            );
             exit(EXIT_CODE_ERROR);
         }
     });
@@ -148,5 +165,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // Start the UI and enter the main program loop
+    info!("Enter Application UI Run Loop");
+
     application.run()
 }

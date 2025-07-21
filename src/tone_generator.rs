@@ -4,6 +4,7 @@ use crate::events::EventType;
 use cpal::traits::*;
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
+use log::{debug, info, warn};
 use sine::Sine;
 use square::Square;
 use std::error::Error;
@@ -78,28 +79,52 @@ impl ToneGenerator {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        info!("Tone Generator Run Loop Started");
+
         let ui_command_receiver = self.ui_command_receiver.clone();
         loop {
-            if let Ok(event) = ui_command_receiver.try_recv() {
+            if let Ok(event) = ui_command_receiver.try_x() {
                 match event {
-                    EventType::Start => self.start().expect("Could Not Start Tone Generator"),
-                    EventType::Stop => self.stop().expect("Could Not Stop Tone Generator"),
+                    EventType::Start => {
+                        debug!("Tone Generator Event Received: Start");
+                        self.start().expect("Could Not Start Tone Generator")
+                    }
+                    EventType::Stop => {
+                        debug!("Tone Generator Event Received: End");
+                        self.stop().expect("Could Not Stop Tone Generator")
+                    }
                     EventType::ToneFrequencyUpdate(new_frequency) => {
+                        debug!(
+                            "Tone Generator Event Received: ToneFrequencyUpdate {}",
+                            new_frequency
+                        );
                         if let Ok(mut freq) = self.reference_frequency.lock() {
                             *freq = new_frequency;
                         }
                     }
                     EventType::ToneLevelUpdate(new_level) => {
+                        debug!(
+                            "Tone Generator Event Received: ToneLevelUpdate {}",
+                            new_level
+                        );
                         if let Ok(mut level) = self.reference_level.lock() {
                             *level = new_level;
                         }
                     }
                     EventType::ToneModeUpdate(sine_enabled) => {
+                        debug!(
+                            "Tone Generator Event Received: ToneModeUpdate {}",
+                            sine_enabled
+                        );
                         if let Ok(mut sine_mode_enabled) = self.sine_mode_enabled.lock() {
                             *sine_mode_enabled = sine_enabled;
                         }
                     }
                     EventType::ToneDeviceUpdate { name, left, right } => {
+                        debug!(
+                            "Tone Generator Event Received: ToneDeviceUpdate {:?}, {:?}, {:?}",
+                            name, left, right
+                        );
                         self.current_output_device = CurrentDevice {
                             name,
                             left_channel: left,
@@ -108,12 +133,15 @@ impl ToneGenerator {
                         self.set_output_device_on_ui_callback()?;
                     }
                     EventType::OutputDeviceListUpdate(device_list) => {
+                        debug!("Tone Generator Event Received: OutputDeviceListUpdate");
                         self.output_device_list = device_list;
                     }
                     _ => (),
                 }
             };
         }
+
+        info!("Tone Generator Run Loop Exited");
     }
 
     pub fn start(&mut self) -> Result<(), LocalError> {
@@ -152,11 +180,11 @@ impl ToneGenerator {
             self.reference_level.clone(),
             user_interface_sender,
         )
-        .map_err(|err| LocalError::OutputStream(err.to_string()))?;
+        .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))?;
 
         self.output_stream
             .pause()
-            .map_err(|err| LocalError::OutputStream(err.to_string()))?;
+            .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))?;
 
         Ok(())
     }
@@ -250,7 +278,7 @@ fn create_output_steam(
             },
             None,
         )
-        .map_err(|err| LocalError::OutputStream(err.to_string()))
+        .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))
 }
 
 fn get_output_device_from_device_name(device_name: &str) -> Result<Device, LocalError> {

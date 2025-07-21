@@ -1,7 +1,7 @@
 import { HorizontalBox, Button, Switch } from "std-widgets.slint";
-import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, ModeSwitch, AboutPopUp, VersionText} from "../ui/components.slint";
+import { LevelBox, DeviceSelector, ChannelSelector, ReferenceFrequency, Label, Error, ModeSwitch, AboutPopUp, VersionText, StartButton} from "../ui/components
+.slint";
 import { Theme } from "../ui/theme.slint";
-import { StartButton } from "components.slint";
 
 
 export component AppWindow inherits Window {
@@ -56,6 +56,10 @@ export component AppWindow inherits Window {
     in-out property <string> error-message;
     callback close-error-dialog();
 
+    in-out property <bool> fatal-error-dialog-visible: false;
+    in-out property <string> fatal-error-message;
+    callback close-fatal-error-dialog();
+
     function about-popup() {
         popup.show();
     }
@@ -78,12 +82,21 @@ export component AppWindow inherits Window {
         license: root.license;
     }
 
-    Error {
+    recoverable_error := Error {
         message: error-message;
         visibility: error-dialog-visible;
         z: 2.0;
         fatal_error_clicked => {
             root.close-error-dialog();
+        }
+    }
+
+    fatal_error := Error {
+        message: fatal-error-message;
+        visibility: fatal-error-dialog-visible;
+        z: 2.0;
+        fatal_error_clicked => {
+            root.close-fatal-error-dialog();
         }
     }
 
@@ -299,6 +312,7 @@ export component AppWindow inherits Window {
                     enabled: right_level_box_enabled;
                 }
             }
+
             HorizontalLayout {
                 padding: 10px;
                 VersionText {

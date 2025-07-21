@@ -33,6 +33,7 @@ pub enum EventType {
         left: String,
         right: Option<String>,
     },
+    RecoverableError(String),
     FatalError(String),
     Start,
     Stop,

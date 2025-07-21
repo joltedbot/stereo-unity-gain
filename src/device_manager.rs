@@ -3,6 +3,7 @@ use crate::events::EventType;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, default_host};
 use crossbeam_channel::Sender;
+use log::{debug, info, warn};
 use std::error::Error;
 use std::thread::sleep;
 use std::time::Duration;
@@ -55,6 +56,15 @@ impl DeviceManager {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        info!("Device Manager Run Loop Started");
+
+        self.input_device_sender
+            .send(EventType::MeterDeviceUpdate {
+                name: self.initial_input_device.name.clone(),
+                left: self.initial_input_device.left_channel.clone(),
+                right: self.initial_input_device.right_channel.clone(),
+            })?;
+
         loop {
             let input_devices = get_input_device_list_from_host()?;
             let output_devices = get_output_device_list_from_host()?;
@@ -83,6 +93,8 @@ impl DeviceManager {
                 RUN_LOOP_SLEEP_DURATION_IN_MILLISECONDS,
             ));
         }
+
+        info!("Device Manager Run Loop Started");
     }
 
     pub fn get_input_devices(&self) -> DeviceList {

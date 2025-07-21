@@ -1,7 +1,9 @@
+use super::AppWindow;
 use crate::device_manager::{CurrentDevice, DeviceList};
-use crate::errors::LocalError;
+use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::events::EventType;
 use crossbeam_channel::{Receiver, Sender};
+use log::{debug, error, info};
 use slint::{ModelRc, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::process::exit;
@@ -12,8 +14,6 @@ const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
-
-slint::include_modules!();
 
 pub struct UI {
     pub ui: Weak<AppWindow>,
@@ -58,28 +58,32 @@ impl UI {
         &mut self,
         level_meter_display_receiver: Receiver<EventType>,
     ) -> Result<(), Box<dyn Error>> {
+        info!("UI Run Loop Started");
+
         let ui_weak = self.ui.clone();
 
         loop {
             if let Ok(event) = level_meter_display_receiver.recv() {
                 match event {
                     EventType::MeterLevelUpdate { left, right } => {
+                        debug!("UI Event Received: MeterLevelUpdate");
                         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                             ui.set_left_level_box_value(SharedString::from(left));
                             ui.set_right_level_box_value(SharedString::from(right));
                         });
                     }
+                    EventType::RecoverableError(error) => {
+                        debug!("UI Event Received: RecoverableError: {}", error);
+                        handle_error_in_ui(&ui_weak, error.as_str());
+                    }
                     EventType::FatalError(error) => {
-                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            if !ui.get_error_dialog_visible() {
-                                ui.set_error_message(SharedString::from(error.to_string()));
-                                ui.set_error_dialog_visible(true);
-                            }
-                        });
+                        debug!("UI Event Received: FatalError: {}", error);
+                        handle_fatal_error_in_ui(&ui_weak, error.as_str());
                     }
                     EventType::InputDeviceUpdate(device_name) => {
-                        self.update_current_input_device(device_name.clone())?;
+                        debug!("UI Event Received: InputDeviceUpdate {}", device_name);
 
+                        self.update_current_input_device(device_name.clone())?;
                         let level_meter_sender = self.level_meter_sender.clone();
 
                         if let Err(error) = level_meter_sender.send(EventType::MeterDeviceUpdate {
@@ -87,13 +91,15 @@ impl UI {
                             left: self.current_input_device.left_channel.clone(),
                             right: self.current_input_device.right_channel.clone(),
                         }) {
-                            handle_ui_error(&ui_weak, &error.to_string());
+                            handle_error_in_ui(&ui_weak, &error.to_string());
                         };
                     }
                     EventType::OutputDeviceUpdate(device_name) => {
-                        self.update_current_output_device(device_name.clone())?;
+                        debug!("UI Event Received: OutputDeviceUpdate {}", device_name);
 
+                        self.update_current_output_device(device_name.clone())?;
                         let tone_generator_sender = self.tone_generator_sender.clone();
+
                         if let Err(error) =
                             tone_generator_sender.send(EventType::ToneDeviceUpdate {
                                 name: device_name,
@@ -101,10 +107,15 @@ impl UI {
                                 right: self.current_output_device.right_channel.clone(),
                             })
                         {
-                            handle_ui_error(&ui_weak, &error.to_string());
+                            handle_error_in_ui(&ui_weak, &error.to_string());
                         };
                     }
                     EventType::InputChannelUpdate { left, right } => {
+                        debug!(
+                            "UI Event Received: InputChannelUpdate {:?}, {:?}",
+                            left, right
+                        );
+
                         self.current_input_device.left_channel = left.clone();
                         self.current_input_device.right_channel = right.clone();
 
@@ -115,10 +126,15 @@ impl UI {
                                 right,
                             })
                         {
-                            handle_ui_error(&ui_weak, &error.to_string());
+                            handle_error_in_ui(&ui_weak, &error.to_string());
                         };
                     }
                     EventType::OutputChannelUpdate { left, right } => {
+                        debug!(
+                            "UI Event Received: OutputChannelUpdate {:?}, {:?}",
+                            left, right
+                        );
+
                         self.current_output_device.left_channel = left.clone();
                         self.current_output_device.right_channel = right.clone();
 
@@ -130,10 +146,12 @@ impl UI {
                                     right: right.clone(),
                                 })
                         {
-                            handle_ui_error(&ui_weak, &error.to_string());
+                            handle_error_in_ui(&ui_weak, &error.to_string());
                         };
                     }
                     EventType::InputDeviceListUpdate(input_device_list) => {
+                        debug!("UI Event Received: InputDeviceListUpdate");
+
                         self.input_device_list = input_device_list.clone();
 
                         if !self
@@ -155,13 +173,15 @@ impl UI {
                                     right: self.current_input_device.right_channel.clone(),
                                 })
                             {
-                                handle_ui_error(&ui_weak, &error.to_string());
+                                handle_error_in_ui(&ui_weak, &error.to_string());
                             };
                         }
 
                         self.initialize_displayed_input_device_data()?;
                     }
                     EventType::OutputDeviceListUpdate(output_device_list) => {
+                        debug!("UI Event Received: OutputDeviceListUpdate");
+
                         self.output_device_list = output_device_list.clone();
 
                         if !self
@@ -182,19 +202,22 @@ impl UI {
                                     right: self.current_output_device.right_channel.clone(),
                                 })
                             {
-                                handle_ui_error(&ui_weak, &error.to_string());
+                                handle_error_in_ui(&ui_weak, &error.to_string());
                             };
                         }
 
                         self.initialize_displayed_output_device_data()?;
                     }
                     EventType::Exit => {
+                        debug!("UI Event Received: Exit");
                         break;
                     }
                     _ => (),
                 }
             }
         }
+
+        info!("UI Run Loop Ended");
 
         Ok(())
     }
@@ -405,6 +428,7 @@ impl UI {
 
     pub fn create_ui_callbacks(&self) {
         self.on_close_error_dialog();
+        self.on_close_fatal_error_dialog();
 
         self.on_select_new_input_device_callback();
         self.on_select_new_input_channel_callback();
@@ -443,12 +467,12 @@ impl UI {
 
             if let Err(error) = level_meter_sender.send(event_type.clone()) {
                 eprintln!("Error sending event: {}", error);
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
 
             if let Err(error) = tone_generator_sender.send(event_type.clone()) {
                 eprintln!("Error sending event: {}", error);
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
         });
     }
@@ -474,7 +498,7 @@ impl UI {
             if let Err(error) =
                 user_interface_sender.send(EventType::InputDeviceUpdate(device_name.clone()))
             {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
         });
     }
@@ -495,7 +519,7 @@ impl UI {
             if let Err(error) =
                 user_interface_sender.send(EventType::OutputDeviceUpdate(device.to_string()))
             {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
         });
     }
@@ -527,7 +551,7 @@ impl UI {
                 left: left_input_channel,
                 right: right_input_channel,
             }) {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
         });
     }
@@ -559,7 +583,7 @@ impl UI {
                 left: left_output_channel,
                 right: right_output_channel,
             }) {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             };
         });
     }
@@ -583,7 +607,7 @@ impl UI {
             if let Err(error) =
                 reference_tone_sender.send(EventType::ToneFrequencyUpdate(frequency))
             {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             }
         });
     }
@@ -607,7 +631,7 @@ impl UI {
             if let Err(error) =
                 tone_generator_sender.send(EventType::ToneModeUpdate(sine_mode_enabled))
             {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             }
         });
     }
@@ -630,11 +654,11 @@ impl UI {
 
         ui.on_tone_level_changed(move |level| {
             if let Err(error) = level_meter_sender.send(EventType::ToneLevelUpdate(level as f32)) {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             }
             if let Err(error) = tone_generator_sender.send(EventType::ToneLevelUpdate(level as f32))
             {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             }
         });
     }
@@ -656,25 +680,29 @@ impl UI {
 
         ui.on_delta_mode_checked(move |delta_mode_enabled| {
             if let Err(error) = mode_sender.send(EventType::MeterModeUpdate(delta_mode_enabled)) {
-                handle_ui_error(&ui_weak, &error.to_string());
+                handle_error_in_ui(&ui_weak, &error.to_string());
             }
         });
     }
 
     fn on_close_error_dialog(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!("Close Dialog Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
-                exit(1);
-            }
-        };
+        let ui = get_ui_from_ui_weak_reference(&ui_weak);
 
         ui.on_close_error_dialog(move || {
             let _ = ui_weak.upgrade_in_event_loop(|ui| {
                 ui.set_error_dialog_visible(false);
             });
+        });
+    }
+
+    fn on_close_fatal_error_dialog(&self) {
+        let ui_weak = self.ui.clone();
+        let ui = get_ui_from_ui_weak_reference(&ui_weak);
+
+        ui.on_close_error_dialog(|| {
+            error!("{}", LocalError::FatalError);
+            exit(EXIT_CODE_ERROR);
         });
     }
 
@@ -687,14 +715,25 @@ impl UI {
 
         if let Err(error) = self.level_meter_sender.send(EventType::Stop) {
             eprintln!("Error sending event: {}", error);
-            handle_ui_error(&ui_weak, &error.to_string());
+            handle_error_in_ui(&ui_weak, &error.to_string());
         };
 
         if let Err(error) = self.tone_generator_sender.send(EventType::Stop) {
             eprintln!("Error sending event: {}", error);
-            handle_ui_error(&ui_weak, &error.to_string());
+            handle_error_in_ui(&ui_weak, &error.to_string());
         };
     }
+}
+
+fn get_ui_from_ui_weak_reference(ui_weak: &Weak<AppWindow>) -> AppWindow {
+    let ui = match ui_weak.upgrade() {
+        Some(ui) => ui,
+        None => {
+            eprintln!("Close Dialog Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
+            exit(1);
+        }
+    };
+    ui
 }
 
 fn get_current_device_index_from_device_list(
@@ -717,10 +756,18 @@ pub fn get_model_from_string_slice(devices: Vec<String>) -> ModelRc<SharedString
     ModelRc::new(VecModel::from_slice(name_list.as_slice()))
 }
 
-pub fn handle_ui_error(ui_weak: &Weak<AppWindow>, error_message: &str) {
+pub fn handle_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
     let error = error_message.to_string();
     let _ = ui_weak.upgrade_in_event_loop(|ui| {
         ui.set_error_message(SharedString::from(error));
         ui.set_error_dialog_visible(true);
+    });
+}
+
+pub fn handle_fatal_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
+    let error = error_message.to_string();
+    let _ = ui_weak.upgrade_in_event_loop(|ui| {
+        ui.set_fatal_error_message(SharedString::from(error));
+        ui.set_fatal_error_dialog_visible(true);
     });
 }

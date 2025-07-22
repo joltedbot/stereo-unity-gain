@@ -1,6 +1,6 @@
 [package]
 name = "stereo-unity-gain"
-version = "0.6.2"
+version = "0.6.4"
 edition = "2024"
 authors = ["Dave White"]
 description = "A simple app with big easy to see from across room level meters to help you set your audio interfaces input gain to unity and balance stereo pairs"
@@ -16,9 +16,9 @@ lto = true
 cpal = "0.16.0"
 crossbeam-channel = "0.5.15"
 rtrb = "0.3.2"
-slint = "1.11.0"
-slint-build = "1.11.0"
+slint = "1.12.1"
+slint-build = "1.12.1"
 thiserror = "2.0.12"
 
 [build-dependencies]
-slint-build = "1.12.0"
+slint-build = "1.12.1"

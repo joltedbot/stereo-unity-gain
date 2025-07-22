@@ -37,7 +37,7 @@ sonarcloud:
     paths:
       - .sonar/cache
   script:
-    - sonar-scanner -Dsonar.organization=joltedbot -Dsonar.projectKey=joltedbot_chunkdump
+    - sonar-scanner -Dsonar.organization="$ORGANIZATION" -Dsonar.projectKey="$PROJECTKEY"
   variables:
     SONAR_HOST_URL: "$SONAR_HOST_URL"
     SONAR_TOKEN: "$SONAR_TOKEN"

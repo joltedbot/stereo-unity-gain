@@ -11,15 +11,18 @@ use crate::events::EventType;
 use crate::events::Events;
 use crate::level_meter::LevelMeter;
 use crate::tone_generator::ToneGenerator;
-use crate::ui::{AppWindow, UI};
+use crate::ui::UI;
 use crossbeam_channel::{Receiver, Sender};
 use slint::ComponentHandle;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+slint::include_modules!();
+
 const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
 const DEFAULT_REFERENCE_LEVEL: i32 = -18;
+pub const DEFAULT_DELTA_MODE: bool = true;
 
 fn main() -> Result<(), slint::PlatformError> {
     // Initialize Slint Application
@@ -66,12 +69,11 @@ fn main() -> Result<(), slint::PlatformError> {
     };
 
     if let Err(err) = ui.initialize_ui_with_device_data(
-        device_manager.get_input_devices(),
-        device_manager.get_current_input_device(),
-        device_manager.get_output_devices(),
-        device_manager.get_current_output_device(),
+        device_manager.get_initial_input_device(),
+        device_manager.get_initial_output_device(),
         DEFAULT_REFERENCE_FREQUENCY,
         DEFAULT_REFERENCE_LEVEL,
+        DEFAULT_DELTA_MODE,
     ) {
         handle_local_error(LocalError::UIInitialization, err.to_string());
         exit(EXIT_CODE_ERROR);
@@ -79,14 +81,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // Initialize Tone Generator Module
     let tone_generator_receiver = events.get_tone_generator_receiver();
-    let output_device_list = device_manager.get_output_devices();
-    let current_output_device = device_manager.get_current_output_device();
     let tone_generator_ui_sender = events.get_user_interface_sender();
 
     thread::spawn(move || {
         let mut tone_generator = match ToneGenerator::new(
-            output_device_list,
-            current_output_device,
             DEFAULT_REFERENCE_FREQUENCY,
             DEFAULT_REFERENCE_LEVEL as f32,
             tone_generator_receiver,
@@ -98,6 +96,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 exit(EXIT_CODE_ERROR);
             }
         };
+
         if let Err(error) = tone_generator.run() {
             handle_local_error(LocalError::ToneGeneratorInitialization, error.to_string());
             exit(EXIT_CODE_ERROR);
@@ -107,25 +106,32 @@ fn main() -> Result<(), slint::PlatformError> {
     // Initialize Level Meter Module
     let level_meter_ui_sender: Sender<EventType> = events.get_user_interface_sender();
     let level_meter_receiver = events.get_level_meter_receiver();
-    let input_device_list = device_manager.get_input_devices();
-    let current_input_device = device_manager.get_current_input_device();
 
     thread::spawn(move || {
-        let mut level_meter = match LevelMeter::new(
-            input_device_list,
-            current_input_device,
-            level_meter_receiver,
-            DEFAULT_REFERENCE_LEVEL as f32,
-        ) {
+        let mut level_meter = match LevelMeter::new(level_meter_receiver) {
             Ok(level_meter) => level_meter,
             Err(error) => {
-                handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
+                handle_local_error(
+                    LocalError::LevelMeterInitialization(error.to_string()),
+                    String::new(),
+                );
                 exit(EXIT_CODE_ERROR);
             }
         };
 
-        if let Err(error) = level_meter.run(level_meter_ui_sender) {
-            handle_local_error(LocalError::LevelMeterInitialization, error.to_string());
+        if let Err(error) = level_meter.run_input_sample_processor(level_meter_ui_sender) {
+            handle_local_error(
+                LocalError::LevelMeterInitialization(error.to_string()),
+                String::new(),
+            );
+            exit(EXIT_CODE_ERROR);
+        }
+
+        if let Err(error) = level_meter.run() {
+            handle_local_error(
+                LocalError::LevelMeterInitialization(error.to_string()),
+                String::new(),
+            );
             exit(EXIT_CODE_ERROR);
         }
     });

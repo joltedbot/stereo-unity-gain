@@ -1,3 +1,3 @@
 fn main() {
-    slint_build::compile("ui/stereo-unity-gain.slint").unwrap();
+    slint_build::compile("ui/main.slint").unwrap();
 }

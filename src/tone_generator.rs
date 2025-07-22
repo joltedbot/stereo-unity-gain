@@ -1,4 +1,4 @@
-use crate::device_manager::{CurrentDevice, DeviceList, get_channel_indexes_from_channel_names};
+use crate::device_manager::{CurrentDevice, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::events::EventType;
 use cpal::traits::*;
@@ -22,9 +22,7 @@ pub trait WaveShape {
 }
 
 pub struct ToneGenerator {
-    output_stream: Stream,
-    current_output_device: CurrentDevice,
-    output_device_list: DeviceList,
+    output_stream: Option<Stream>,
     sine_mode_enabled: Arc<Mutex<bool>>,
     reference_frequency: Arc<Mutex<f32>>,
     reference_level: Arc<Mutex<f32>>,
@@ -34,44 +32,20 @@ pub struct ToneGenerator {
 
 impl ToneGenerator {
     pub fn new(
-        output_device_list: DeviceList,
-        current_output_device: CurrentDevice,
         reference_frequency: f32,
         reference_level: f32,
         ui_command_receiver: Receiver<EventType>,
         user_interface_sender: Sender<EventType>,
     ) -> Result<Self, Box<dyn Error>> {
-        let output_device = get_output_device_from_device_name(&current_output_device.name)?;
-
-        let (left_output_channel_index, right_output_channel_index) =
-            get_channel_indexes_from_channel_names(
-                &current_output_device.left_channel,
-                &current_output_device.right_channel,
-            )?;
-
         let reference_frequency_arc = Arc::new(Mutex::new(reference_frequency));
         let reference_level_arc = Arc::new(Mutex::new(reference_level));
         let sine_mode_arc = Arc::new(Mutex::new(true));
 
-        let output_stream = create_output_steam(
-            &output_device,
-            left_output_channel_index,
-            right_output_channel_index,
-            sine_mode_arc.clone(),
-            reference_frequency_arc.clone(),
-            reference_level_arc.clone(),
-            user_interface_sender.clone(),
-        )?;
-
-        output_stream.pause()?;
-
         Ok(Self {
-            current_output_device,
             sine_mode_enabled: sine_mode_arc,
             reference_frequency: reference_frequency_arc,
             reference_level: reference_level_arc,
-            output_stream,
-            output_device_list,
+            output_stream: None,
             ui_command_receiver,
             user_interface_sender,
         })
@@ -100,15 +74,7 @@ impl ToneGenerator {
                         }
                     }
                     EventType::ToneDeviceUpdate { name, left, right } => {
-                        self.current_output_device = CurrentDevice {
-                            name,
-                            left_channel: left,
-                            right_channel: right,
-                        };
-                        self.set_output_device_on_ui_callback()?;
-                    }
-                    EventType::OutputDeviceListUpdate(device_list) => {
-                        self.output_device_list = device_list;
+                        self.update_output_stream_on_new_device(name, left, right)?;
                     }
                     _ => (),
                 }
@@ -117,33 +83,39 @@ impl ToneGenerator {
     }
 
     pub fn start(&mut self) -> Result<(), LocalError> {
-        self.output_stream
-            .play()
-            .map_err(|err| LocalError::ToneGeneratorStart(err.to_string()))?;
+        if let Some(ref mut stream) = self.output_stream {
+            stream
+                .play()
+                .map_err(|err| LocalError::ToneGeneratorStart(err.to_string()))?;
+        }
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), LocalError> {
-        self.output_stream
-            .pause()
-            .map_err(|err| LocalError::ToneGeneratorStop(err.to_string()))?;
+        if let Some(ref mut stream) = self.output_stream {
+            stream
+                .pause()
+                .map_err(|err| LocalError::ToneGeneratorStart(err.to_string()))?;
+        }
         Ok(())
     }
 
-    pub fn set_output_device_on_ui_callback(&mut self) -> Result<(), LocalError> {
+    pub fn update_output_stream_on_new_device(
+        &mut self,
+        name: String,
+        left_channel: String,
+        right_channel: Option<String>,
+    ) -> Result<(), LocalError> {
         self.stop()?;
 
-        let output_device = get_output_device_from_device_name(&self.current_output_device.name)?;
+        let output_device = get_output_device_from_device_name(&name)?;
 
         let (left_output_channel_index, right_output_channel_index) =
-            get_channel_indexes_from_channel_names(
-                &self.current_output_device.left_channel,
-                &self.current_output_device.right_channel,
-            )?;
+            get_channel_indexes_from_channel_names(&left_channel, &right_channel)?;
 
         let user_interface_sender = self.user_interface_sender.clone();
 
-        self.output_stream = create_output_steam(
+        let output_stream = create_output_steam(
             &output_device,
             left_output_channel_index,
             right_output_channel_index,
@@ -152,11 +124,13 @@ impl ToneGenerator {
             self.reference_level.clone(),
             user_interface_sender,
         )
-        .map_err(|err| LocalError::OutputStream(err.to_string()))?;
+        .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))?;
 
-        self.output_stream
+        output_stream
             .pause()
-            .map_err(|err| LocalError::OutputStream(err.to_string()))?;
+            .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))?;
+
+        self.output_stream = Some(output_stream);
 
         Ok(())
     }
@@ -250,7 +224,7 @@ fn create_output_steam(
             },
             None,
         )
-        .map_err(|err| LocalError::OutputStream(err.to_string()))
+        .map_err(|err| LocalError::ToneGeneratorOutputStream(err.to_string()))
 }
 
 fn get_output_device_from_device_name(device_name: &str) -> Result<Device, LocalError> {

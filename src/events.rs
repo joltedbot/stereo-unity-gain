@@ -4,8 +4,8 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventType {
     MeterLevelUpdate {
-        left: String,
-        right: String,
+        left: f32,
+        right: f32,
     },
     MeterModeUpdate(bool),
     MeterDeviceUpdate {
@@ -33,6 +33,7 @@ pub enum EventType {
         left: String,
         right: Option<String>,
     },
+    RecoverableError(String),
     FatalError(String),
     Start,
     Stop,

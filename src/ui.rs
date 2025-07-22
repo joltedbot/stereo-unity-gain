@@ -13,11 +13,10 @@ const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
-pub const DEFAULT_DELTA_MODE: bool = true;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct State {
-    meter_is_delta_mode: bool,
+    meter_delta_mode_active: bool,
     reference_level: i32,
 }
 
@@ -39,16 +38,10 @@ impl UI {
         tone_generator_sender: Sender<EventType>,
         level_meter_sender: Sender<EventType>,
         user_interface_sender: Sender<EventType>,
-        reference_level: i32,
     ) -> Result<Self, Box<dyn Error>> {
         let ui_weak_mutex = ui_mutex
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        let state = State {
-            meter_is_delta_mode: DEFAULT_DELTA_MODE,
-            reference_level,
-        };
 
         let ui = Self {
             ui: ui_weak_mutex.clone(),
@@ -59,7 +52,7 @@ impl UI {
             output_device_list: DeviceList::default(),
             current_input_device: CurrentDevice::default(),
             current_output_device: CurrentDevice::default(),
-            state: Arc::new(Mutex::new(state)),
+            state: Arc::new(Mutex::new(State::default())),
         };
 
         Ok(ui)
@@ -84,7 +77,7 @@ impl UI {
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-                        if state.meter_is_delta_mode {
+                        if state.meter_delta_mode_active {
                             left -= state.reference_level as f32;
                             right -= state.reference_level as f32;
                         }
@@ -226,17 +219,23 @@ impl UI {
 
     pub fn initialize_ui_with_device_data(
         &mut self,
-        input_device_list: DeviceList,
         current_input_device: CurrentDevice,
-        output_device_list: DeviceList,
         current_output_device: CurrentDevice,
         reference_frequency: f32,
         reference_level: i32,
+        delta_mode_active: bool,
     ) -> Result<(), Box<dyn Error>> {
-        self.input_device_list = input_device_list;
-        self.output_device_list = output_device_list;
         self.current_input_device = current_input_device;
         self.current_output_device = current_output_device;
+
+        {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.reference_level = reference_level;
+            state.meter_delta_mode_active = delta_mode_active;
+        }
 
         let ui_weak = self.ui.clone();
 
@@ -248,14 +247,6 @@ impl UI {
             ui.set_reference_level(reference_level);
         });
 
-        self.initialize_displayed_device_data()?;
-
-        Ok(())
-    }
-
-    fn initialize_displayed_device_data(&mut self) -> Result<(), Box<dyn Error>> {
-        self.initialize_displayed_input_device_data()?;
-        self.initialize_displayed_output_device_data()?;
         Ok(())
     }
 
@@ -653,8 +644,15 @@ impl UI {
 
         let level_meter_sender = self.level_meter_sender.clone();
         let tone_generator_sender = self.tone_generator_sender.clone();
+        let state_arc = self.state.clone();
 
         ui.on_tone_level_changed(move |level| {
+            let mut state = state_arc
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+            state.reference_level = level;
+
             if let Err(error) = level_meter_sender.send(EventType::ToneLevelUpdate(level as f32)) {
                 handle_error_in_ui(&ui_weak, &error.to_string());
             }
@@ -680,11 +678,11 @@ impl UI {
 
         let state_arc = self.state.clone();
 
-        ui.on_delta_mode_checked(move |delta_mode_enabled| {
+        ui.on_delta_mode_checked(move |delta_mode_active| {
             let mut state = state_arc
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            state.meter_is_delta_mode = delta_mode_enabled;
+            state.meter_delta_mode_active = delta_mode_active;
         });
     }
 

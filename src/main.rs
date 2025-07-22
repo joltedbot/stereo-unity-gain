@@ -22,6 +22,7 @@ slint::include_modules!();
 
 const DEFAULT_REFERENCE_FREQUENCY: f32 = 1000.0;
 const DEFAULT_REFERENCE_LEVEL: i32 = -18;
+pub const DEFAULT_DELTA_MODE: bool = true;
 
 fn main() -> Result<(), slint::PlatformError> {
     // Initialize Slint Application
@@ -40,7 +41,6 @@ fn main() -> Result<(), slint::PlatformError> {
         tone_generator_sender,
         level_meter_sender,
         user_interface_sender,
-        DEFAULT_REFERENCE_LEVEL,
     ) {
         Ok(ui) => ui,
         Err(error) => {
@@ -69,12 +69,11 @@ fn main() -> Result<(), slint::PlatformError> {
     };
 
     if let Err(err) = ui.initialize_ui_with_device_data(
-        device_manager.get_input_devices(),
         device_manager.get_initial_input_device(),
-        device_manager.get_output_devices(),
         device_manager.get_initial_output_device(),
         DEFAULT_REFERENCE_FREQUENCY,
         DEFAULT_REFERENCE_LEVEL,
+        DEFAULT_DELTA_MODE,
     ) {
         handle_local_error(LocalError::UIInitialization, err.to_string());
         exit(EXIT_CODE_ERROR);
@@ -97,6 +96,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 exit(EXIT_CODE_ERROR);
             }
         };
+
         if let Err(error) = tone_generator.run() {
             handle_local_error(LocalError::ToneGeneratorInitialization, error.to_string());
             exit(EXIT_CODE_ERROR);

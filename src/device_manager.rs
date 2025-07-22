@@ -62,11 +62,20 @@ impl DeviceManager {
                 right: self.initial_input_device.right_channel.clone(),
             })?;
 
-        self.output_device_sender.send(EventType::ToneDeviceUpdate {
-            name: self.initial_output_device.name.clone(),
-            left: self.initial_output_device.left_channel.clone(),
-            right: self.initial_output_device.right_channel.clone(),
-        })?;
+        self.output_device_sender
+            .send(EventType::ToneDeviceUpdate {
+                name: self.initial_output_device.name.clone(),
+                left: self.initial_output_device.left_channel.clone(),
+                right: self.initial_output_device.right_channel.clone(),
+            })?;
+
+        self.user_interface_sender
+            .send(EventType::InputDeviceListUpdate(self.input_devices.clone()))?;
+
+        self.user_interface_sender
+            .send(EventType::OutputDeviceListUpdate(
+                self.output_devices.clone(),
+            ))?;
 
         loop {
             let input_devices = get_input_device_list_from_host()?;
@@ -90,13 +99,6 @@ impl DeviceManager {
                 RUN_LOOP_SLEEP_DURATION_IN_MILLISECONDS,
             ));
         }
-    }
-
-    pub fn get_input_devices(&self) -> DeviceList {
-        self.input_devices.clone()
-    }
-    pub fn get_output_devices(&self) -> DeviceList {
-        self.output_devices.clone()
     }
 
     pub fn get_initial_input_device(&self) -> CurrentDevice {

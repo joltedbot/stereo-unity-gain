@@ -4,7 +4,6 @@ use crate::events::EventType;
 use cpal::traits::*;
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
-use log::{debug, error, info, warn};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::error::Error;
 use std::process::exit;
@@ -12,10 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 const ERROR_MESSAGE_INPUT_STREAM_ERROR: &str = "Input Stream error!";
-const ERROR_MESSAGE_RUN_LOOP: &str =
-    "Could not reference shared data withing the Level Meter Run Loop!";
 const INPUT_BUFFERS_FOR_PEAK_CALCULATION: usize = 20;
-const DEFAULT_DELTA_MODE: bool = true;
 const RING_BUFFER_SIZE: usize = 1024;
 
 struct SampleFrameBuffer {
@@ -29,65 +25,31 @@ pub struct LevelMeter {
     input_stream: Option<Stream>,
     sample_consumer: Arc<Mutex<Consumer<SampleFrameBuffer>>>,
     sample_producer: Arc<Mutex<Producer<SampleFrameBuffer>>>,
-    delta_mode_enabled: Arc<Mutex<bool>>,
-    reference_level: Arc<Mutex<f32>>,
     ui_command_receiver: Receiver<EventType>,
 }
 
 impl LevelMeter {
-    pub fn new(
-        ui_command_receiver: Receiver<EventType>,
-        default_reference_level: f32,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ui_command_receiver: Receiver<EventType>) -> Result<Self, Box<dyn Error>> {
         let (sample_producer, sample_consumer) = RingBuffer::new(RING_BUFFER_SIZE);
         let sample_producer_arc = Arc::new(Mutex::new(sample_producer));
-
-        let default_delta_mode_enabled = DEFAULT_DELTA_MODE;
-        let delta_mode_enabled = Arc::new(Mutex::new(default_delta_mode_enabled));
-        let reference_level = Arc::new(Mutex::new(default_reference_level));
 
         Ok(Self {
             input_stream: None,
             sample_consumer: Arc::new(Mutex::new(sample_consumer)),
             sample_producer: sample_producer_arc,
             ui_command_receiver,
-            delta_mode_enabled,
-            reference_level,
         })
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        info!("Level Meter Run Loop Started");
-
         let event_consumer = self.ui_command_receiver.clone();
 
         loop {
             if let Ok(event) = event_consumer.try_recv() {
                 match event {
-                    EventType::Start => {
-                        debug!("Level Meter Event Received: Start");
-                        self.start()?
-                    }
-                    EventType::Stop => {
-                        debug!("Level Meter Event Received: Stop");
-                        self.stop()?
-                    }
-                    EventType::MeterModeUpdate(new_delta_mode) => {
-                        debug!(
-                            "Level Meter Event Received: MeterModeUpdate {}",
-                            new_delta_mode
-                        );
-                        self.update_meter_mode(new_delta_mode)?
-                    }
-                    EventType::ToneLevelUpdate(new_level) => {
-                        debug!("Level Meter Event Received: ToneLevelUpdate {}", new_level);
-                        self.update_reference_level(new_level)?
-                    }
+                    EventType::Start => self.start()?,
+                    EventType::Stop => self.stop()?,
                     EventType::MeterDeviceUpdate { name, left, right } => {
-                        debug!(
-                            "Level Meter Event Received: MeterDeviceUpdate {:?}, {:?}, {:?}",
-                            name, left, right
-                        );
                         self.update_input_stream_on_new_device(name, left, right)?
                     }
                     _ => (),
@@ -111,32 +73,6 @@ impl LevelMeter {
                 .pause()
                 .map_err(|err| LocalError::LevelMeterStop(err.to_string()))?;
         }
-        Ok(())
-    }
-
-    fn update_meter_mode(&mut self, new_delta_mode: bool) -> Result<(), Box<dyn Error>> {
-        match self.delta_mode_enabled.lock() {
-            Ok(mut delta_mode) => *delta_mode = new_delta_mode,
-            Err(_) => {
-                return Err(Box::new(LocalError::LevelMeterInitialization(
-                    ERROR_MESSAGE_RUN_LOOP.to_string(),
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn update_reference_level(&mut self, new_reference_level: f32) -> Result<(), Box<dyn Error>> {
-        match self.reference_level.lock() {
-            Ok(mut level) => *level = new_reference_level,
-            Err(_) => {
-                return Err(Box::new(LocalError::LevelMeterInitialization(
-                    ERROR_MESSAGE_RUN_LOOP.to_string(),
-                )));
-            }
-        };
-
         Ok(())
     }
 
@@ -180,16 +116,11 @@ impl LevelMeter {
         let mut previous_right_peak: f32 = 0.0;
 
         let sample_receiver_arc = self.sample_consumer.clone();
-        let refence_level_arc = self.reference_level.clone();
-        let delta_mode_enabled_arc = self.delta_mode_enabled.clone();
 
         thread::spawn(move || {
-            debug!("run_input_sample_processor() called and thread spawned");
-
-            let mut sample_receiver = sample_receiver_arc.lock().unwrap_or_else(|poisoned| {
-                warn!("{}", LocalError::LevelMeterReceiver);
-                poisoned.into_inner()
-            });
+            let mut sample_receiver = sample_receiver_arc
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
 
             loop {
                 if let Ok(sample_buffers) = sample_receiver.pop() {
@@ -208,9 +139,9 @@ impl LevelMeter {
                                 &mut right_input_buffer_collector,
                             );
 
-                        let mut new_left_peak =
+                        let new_left_peak =
                             get_peak_value_of_collected_samples(&mut left_samples_buffer);
-                        let mut new_right_peak =
+                        let new_right_peak =
                             get_peak_value_of_collected_samples(&mut right_samples_buffer);
 
                         if previous_left_peak != new_left_peak
@@ -219,25 +150,10 @@ impl LevelMeter {
                             previous_left_peak = new_left_peak;
                             previous_right_peak = new_right_peak;
 
-                            let reference_level =
-                                get_reference_level_from_mutex(&refence_level_arc);
-                            let delta_mode_enabled =
-                                get_delta_mode_from_mutex(&delta_mode_enabled_arc);
-
-                            if delta_mode_enabled {
-                                new_left_peak -= reference_level;
-                                new_right_peak -= reference_level;
-                            }
-
-                            let left_formatted =
-                                format_peak_delta_values_for_display(new_left_peak);
-                            let right_formatted =
-                                format_peak_delta_values_for_display(new_right_peak);
-
                             send_updated_meter_values_to_the_ui(
                                 &user_interface_sender,
-                                left_formatted,
-                                right_formatted,
+                                new_left_peak,
+                                new_right_peak,
                             );
                         }
                     }
@@ -250,20 +166,6 @@ impl LevelMeter {
 
         Ok(())
     }
-}
-
-fn get_reference_level_from_mutex(refence_level_arc: &Arc<Mutex<f32>>) -> f32 {
-    *refence_level_arc.lock().unwrap_or_else(|poisoned| {
-        warn!("{}", LocalError::LevelMeterReferenceLevel);
-        poisoned.into_inner()
-    })
-}
-
-fn get_delta_mode_from_mutex(delta_mode_enabled_arc: &Arc<Mutex<bool>>) -> bool {
-    *delta_mode_enabled_arc.lock().unwrap_or_else(|poisoned| {
-        warn!("{}", LocalError::LevelMeterDeltaMode);
-        poisoned.into_inner()
-    })
 }
 
 fn check_and_exit_if_sample_ring_buffer_is_not_alive(
@@ -282,14 +184,10 @@ fn check_and_exit_if_sample_ring_buffer_is_not_alive(
 
 fn send_updated_meter_values_to_the_ui(
     user_interface_sender: &Sender<EventType>,
-    left_formatted: String,
-    right_formatted: String,
+    left: f32,
+    right: f32,
 ) {
-    if let Err(error) = user_interface_sender.send(EventType::MeterLevelUpdate {
-        left: left_formatted,
-        right: right_formatted,
-    }) {
-        error!("{}: {}", LocalError::LevelMeterUISender, error);
+    if let Err(error) = user_interface_sender.send(EventType::MeterLevelUpdate { left, right }) {
         handle_local_error(LocalError::LevelMeterUISender, error.to_string());
         exit(1);
     };
@@ -325,19 +223,15 @@ fn create_input_stream(
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 data.chunks_exact(number_of_channels as usize)
                     .for_each(|frame| {
-                        left_channel_samples.push(frame[left_channel_index]);
-                        if let Some(index) = right_channel_index {
-                            right_channel_samples.push(frame[index]);
-                        }
-                    });
 
-                let mut sample_producer = match sample_producer_arc.lock() {
-                    Ok(sample_producer) => sample_producer,
-                    Err(err) => {
-                        eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
-                        exit(EXIT_CODE_ERROR);
+                left_channel_samples.push(frame[left_channel_index]);
+                    if let Some(index) = right_channel_index {
+                        right_channel_samples.push(frame[index]);
                     }
-                };
+                });
+
+                let mut sample_producer = sample_producer_arc.lock().unwrap_or_else(|poisoned| poisoned
+                    .into_inner());
 
                 if let Err(err) = sample_producer.push(SampleFrameBuffer {
                     is_alive: true,
@@ -352,13 +246,8 @@ fn create_input_stream(
                 right_channel_samples.clear();
             },
             move |error| {
-                let mut error_producer = match error_producer_arc.lock() {
-                    Ok(error_producer) => error_producer,
-                    Err(err) => {
-                        eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
-                        exit(EXIT_CODE_ERROR);
-                    }
-                };
+                let mut error_producer = error_producer_arc.lock().unwrap_or_else(|poisoned| poisoned
+                    .into_inner());
 
                 if let Err(err) = error_producer.push(SampleFrameBuffer {
                     is_alive: false,
@@ -399,18 +288,6 @@ fn get_dbfs_from_sample_value(sample: f32) -> f32 {
     20.0 * (sample.abs().log10())
 }
 
-fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
-    if peak_delta_value.is_infinite() || peak_delta_value.is_nan() {
-        "-".to_string()
-    } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
-        "0.0".to_string()
-    } else if peak_delta_value > 0.1 {
-        format!("+{:.1}", peak_delta_value)
-    } else {
-        format!("{:.1}", peak_delta_value)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,16 +319,5 @@ mod tests {
     fn return_negative_infinity_dbfs_when_sample_value_is_zero() {
         let dbfs = get_dbfs_from_sample_value(0.0);
         assert_eq!(dbfs, f32::NEG_INFINITY);
-    }
-
-    #[test]
-    fn return_dash_delta_value_for_display_if_infinity_nan_or_negative_infinity() {
-        let dash_delta_values = [f32::NEG_INFINITY, f32::INFINITY, f32::NAN];
-        let expected_result = "-";
-
-        for value in dash_delta_values {
-            let result = format_peak_delta_values_for_display(value);
-            assert_eq!(result, expected_result);
-        }
     }
 }

@@ -3,7 +3,6 @@ use crate::device_manager::{CurrentDevice, DeviceList};
 use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::events::EventType;
 use crossbeam_channel::{Receiver, Sender};
-use log::{debug, error, info};
 use slint::{ModelRc, SharedString, VecModel, Weak};
 use std::error::Error;
 use std::process::exit;
@@ -15,6 +14,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct State {
+    meter_is_delta_mode: bool,
+    reference_level: i32,
+}
+
 pub struct UI {
     pub ui: Weak<AppWindow>,
     level_meter_sender: Sender<EventType>,
@@ -24,6 +29,7 @@ pub struct UI {
     output_device_list: DeviceList,
     current_input_device: CurrentDevice,
     current_output_device: CurrentDevice,
+    state: Arc<Mutex<State>>,
 }
 
 impl UI {
@@ -33,15 +39,10 @@ impl UI {
         level_meter_sender: Sender<EventType>,
         user_interface_sender: Sender<EventType>,
     ) -> Result<Self, Box<dyn Error>> {
-        let ui_weak = match ui_mutex.lock() {
-            Ok(ui_guard) => ui_guard.clone(),
-            Err(_) => {
-                return Err(Box::new(LocalError::UIInitialization));
-            }
-        };
+        let ui_weak_mutex = ui_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let ui = Self {
-            ui: ui_weak,
+            ui: ui_weak_mutex.clone(),
             tone_generator_sender,
             level_meter_sender,
             user_interface_sender,
@@ -49,6 +50,7 @@ impl UI {
             output_device_list: DeviceList::default(),
             current_input_device: CurrentDevice::default(),
             current_output_device: CurrentDevice::default(),
+            state: Arc::new(Mutex::new(State::default())),
         };
 
         Ok(ui)
@@ -58,31 +60,41 @@ impl UI {
         &mut self,
         level_meter_display_receiver: Receiver<EventType>,
     ) -> Result<(), Box<dyn Error>> {
-        info!("UI Run Loop Started");
-
         let ui_weak = self.ui.clone();
+
+        let state_arc = self.state.clone();
 
         loop {
             if let Ok(event) = level_meter_display_receiver.recv() {
                 match event {
-                    EventType::MeterLevelUpdate { left, right } => {
-                        debug!("UI Event Received: MeterLevelUpdate");
+                    EventType::MeterLevelUpdate {
+                        mut left,
+                        mut right,
+                    } => {
+                        let state = state_arc
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+                        if state.meter_is_delta_mode {
+                            left -= state.reference_level as f32;
+                            right -= state.reference_level as f32;
+                        }
+
+                        let left_formatted = format_peak_delta_values_for_display(left);
+                        let right_formatted = format_peak_delta_values_for_display(right);
+
                         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_left_level_box_value(SharedString::from(left));
-                            ui.set_right_level_box_value(SharedString::from(right));
+                            ui.set_left_level_box_value(SharedString::from(left_formatted));
+                            ui.set_right_level_box_value(SharedString::from(right_formatted));
                         });
                     }
                     EventType::RecoverableError(error) => {
-                        debug!("UI Event Received: RecoverableError: {}", error);
                         handle_error_in_ui(&ui_weak, error.as_str());
                     }
                     EventType::FatalError(error) => {
-                        debug!("UI Event Received: FatalError: {}", error);
                         handle_fatal_error_in_ui(&ui_weak, error.as_str());
                     }
                     EventType::InputDeviceUpdate(device_name) => {
-                        debug!("UI Event Received: InputDeviceUpdate {}", device_name);
-
                         self.update_current_input_device(device_name.clone())?;
                         let level_meter_sender = self.level_meter_sender.clone();
 
@@ -95,8 +107,6 @@ impl UI {
                         };
                     }
                     EventType::OutputDeviceUpdate(device_name) => {
-                        debug!("UI Event Received: OutputDeviceUpdate {}", device_name);
-
                         self.update_current_output_device(device_name.clone())?;
                         let tone_generator_sender = self.tone_generator_sender.clone();
 
@@ -111,11 +121,6 @@ impl UI {
                         };
                     }
                     EventType::InputChannelUpdate { left, right } => {
-                        debug!(
-                            "UI Event Received: InputChannelUpdate {:?}, {:?}",
-                            left, right
-                        );
-
                         self.current_input_device.left_channel = left.clone();
                         self.current_input_device.right_channel = right.clone();
 
@@ -130,11 +135,6 @@ impl UI {
                         };
                     }
                     EventType::OutputChannelUpdate { left, right } => {
-                        debug!(
-                            "UI Event Received: OutputChannelUpdate {:?}, {:?}",
-                            left, right
-                        );
-
                         self.current_output_device.left_channel = left.clone();
                         self.current_output_device.right_channel = right.clone();
 
@@ -150,8 +150,6 @@ impl UI {
                         };
                     }
                     EventType::InputDeviceListUpdate(input_device_list) => {
-                        debug!("UI Event Received: InputDeviceListUpdate");
-
                         self.input_device_list = input_device_list.clone();
 
                         if !self
@@ -180,8 +178,6 @@ impl UI {
                         self.initialize_displayed_input_device_data()?;
                     }
                     EventType::OutputDeviceListUpdate(output_device_list) => {
-                        debug!("UI Event Received: OutputDeviceListUpdate");
-
                         self.output_device_list = output_device_list.clone();
 
                         if !self
@@ -209,15 +205,12 @@ impl UI {
                         self.initialize_displayed_output_device_data()?;
                     }
                     EventType::Exit => {
-                        debug!("UI Event Received: Exit");
                         break;
                     }
                     _ => (),
                 }
             }
         }
-
-        info!("UI Run Loop Ended");
 
         Ok(())
     }
@@ -676,9 +669,14 @@ impl UI {
             }
         };
 
+        let state_arc = self.state.clone();
         let mode_sender = self.level_meter_sender.clone();
 
         ui.on_delta_mode_checked(move |delta_mode_enabled| {
+            let mut state = state_arc
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.meter_is_delta_mode = delta_mode_enabled;
             if let Err(error) = mode_sender.send(EventType::MeterModeUpdate(delta_mode_enabled)) {
                 handle_error_in_ui(&ui_weak, &error.to_string());
             }
@@ -701,7 +699,6 @@ impl UI {
         let ui = get_ui_from_ui_weak_reference(&ui_weak);
 
         ui.on_close_error_dialog(|| {
-            error!("{}", LocalError::FatalError);
             exit(EXIT_CODE_ERROR);
         });
     }
@@ -751,12 +748,12 @@ fn get_current_device_index_from_device_list(
     Ok(index)
 }
 
-pub fn get_model_from_string_slice(devices: Vec<String>) -> ModelRc<SharedString> {
+fn get_model_from_string_slice(devices: Vec<String>) -> ModelRc<SharedString> {
     let name_list: Vec<SharedString> = devices.iter().map(SharedString::from).collect();
     ModelRc::new(VecModel::from_slice(name_list.as_slice()))
 }
 
-pub fn handle_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
+fn handle_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
     let error = error_message.to_string();
     let _ = ui_weak.upgrade_in_event_loop(|ui| {
         ui.set_error_message(SharedString::from(error));
@@ -764,10 +761,38 @@ pub fn handle_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
     });
 }
 
-pub fn handle_fatal_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
+fn handle_fatal_error_in_ui(ui_weak: &Weak<AppWindow>, error_message: &str) {
     let error = error_message.to_string();
     let _ = ui_weak.upgrade_in_event_loop(|ui| {
         ui.set_fatal_error_message(SharedString::from(error));
         ui.set_fatal_error_dialog_visible(true);
     });
+}
+
+fn format_peak_delta_values_for_display(peak_delta_value: f32) -> String {
+    if peak_delta_value.is_infinite() || peak_delta_value.is_nan() {
+        "-".to_string()
+    } else if (peak_delta_value < 0.0) & (peak_delta_value > -0.1) {
+        "0.0".to_string()
+    } else if peak_delta_value > 0.1 {
+        format!("+{:.1}", peak_delta_value)
+    } else {
+        format!("{:.1}", peak_delta_value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn return_dash_delta_value_for_display_if_infinity_nan_or_negative_infinity() {
+        let dash_delta_values = [f32::NEG_INFINITY, f32::INFINITY, f32::NAN];
+        let expected_result = "-";
+
+        for value in dash_delta_values {
+            let result = format_peak_delta_values_for_display(value);
+            assert_eq!(result, expected_result);
+        }
+    }
 }

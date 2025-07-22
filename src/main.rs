@@ -40,6 +40,7 @@ fn main() -> Result<(), slint::PlatformError> {
         tone_generator_sender,
         level_meter_sender,
         user_interface_sender,
+        DEFAULT_REFERENCE_LEVEL,
     ) {
         Ok(ui) => ui,
         Err(error) => {
@@ -69,9 +70,9 @@ fn main() -> Result<(), slint::PlatformError> {
 
     if let Err(err) = ui.initialize_ui_with_device_data(
         device_manager.get_input_devices(),
-        device_manager.get_current_input_device(),
+        device_manager.get_initial_input_device(),
         device_manager.get_output_devices(),
-        device_manager.get_current_output_device(),
+        device_manager.get_initial_output_device(),
         DEFAULT_REFERENCE_FREQUENCY,
         DEFAULT_REFERENCE_LEVEL,
     ) {
@@ -81,14 +82,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // Initialize Tone Generator Module
     let tone_generator_receiver = events.get_tone_generator_receiver();
-    let output_device_list = device_manager.get_output_devices();
-    let current_output_device = device_manager.get_current_output_device();
     let tone_generator_ui_sender = events.get_user_interface_sender();
 
     thread::spawn(move || {
         let mut tone_generator = match ToneGenerator::new(
-            output_device_list,
-            current_output_device,
             DEFAULT_REFERENCE_FREQUENCY,
             DEFAULT_REFERENCE_LEVEL as f32,
             tone_generator_receiver,

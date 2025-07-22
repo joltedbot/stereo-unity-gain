@@ -223,15 +223,15 @@ fn create_input_stream(
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 data.chunks_exact(number_of_channels as usize)
                     .for_each(|frame| {
+                        left_channel_samples.push(frame[left_channel_index]);
+                        if let Some(index) = right_channel_index {
+                            right_channel_samples.push(frame[index]);
+                        }
+                    });
 
-                left_channel_samples.push(frame[left_channel_index]);
-                    if let Some(index) = right_channel_index {
-                        right_channel_samples.push(frame[index]);
-                    }
-                });
-
-                let mut sample_producer = sample_producer_arc.lock().unwrap_or_else(|poisoned| poisoned
-                    .into_inner());
+                let mut sample_producer = sample_producer_arc
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
 
                 if let Err(err) = sample_producer.push(SampleFrameBuffer {
                     is_alive: true,
@@ -246,8 +246,9 @@ fn create_input_stream(
                 right_channel_samples.clear();
             },
             move |error| {
-                let mut error_producer = error_producer_arc.lock().unwrap_or_else(|poisoned| poisoned
-                    .into_inner());
+                let mut error_producer = error_producer_arc
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
 
                 if let Err(err) = error_producer.push(SampleFrameBuffer {
                     is_alive: false,

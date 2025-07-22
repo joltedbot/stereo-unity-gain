@@ -13,6 +13,7 @@ const FATAL_ERROR_MESSAGE_UI_ERROR: &str =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 pub const LICENSE: &str = env!("CARGO_PKG_LICENSE");
+pub const DEFAULT_DELTA_MODE: bool = true;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct State {
@@ -38,8 +39,16 @@ impl UI {
         tone_generator_sender: Sender<EventType>,
         level_meter_sender: Sender<EventType>,
         user_interface_sender: Sender<EventType>,
+        reference_level: i32,
     ) -> Result<Self, Box<dyn Error>> {
-        let ui_weak_mutex = ui_mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ui_weak_mutex = ui_mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let state = State {
+            meter_is_delta_mode: DEFAULT_DELTA_MODE,
+            reference_level,
+        };
 
         let ui = Self {
             ui: ui_weak_mutex.clone(),
@@ -50,7 +59,7 @@ impl UI {
             output_device_list: DeviceList::default(),
             current_input_device: CurrentDevice::default(),
             current_output_device: CurrentDevice::default(),
-            state: Arc::new(Mutex::new(State::default())),
+            state: Arc::new(Mutex::new(state)),
         };
 
         Ok(ui)
@@ -670,16 +679,12 @@ impl UI {
         };
 
         let state_arc = self.state.clone();
-        let mode_sender = self.level_meter_sender.clone();
 
         ui.on_delta_mode_checked(move |delta_mode_enabled| {
             let mut state = state_arc
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.meter_is_delta_mode = delta_mode_enabled;
-            if let Err(error) = mode_sender.send(EventType::MeterModeUpdate(delta_mode_enabled)) {
-                handle_error_in_ui(&ui_weak, &error.to_string());
-            }
         });
     }
 

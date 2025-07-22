@@ -29,7 +29,7 @@ pub struct DeviceManager {
     input_devices: DeviceList,
     output_devices: DeviceList,
     initial_input_device: CurrentDevice,
-    current_output_device: CurrentDevice,
+    initial_output_device: CurrentDevice,
 }
 
 impl DeviceManager {
@@ -50,7 +50,7 @@ impl DeviceManager {
             input_devices,
             output_devices,
             initial_input_device: current_input_device,
-            current_output_device,
+            initial_output_device: current_output_device,
         })
     }
 
@@ -62,6 +62,12 @@ impl DeviceManager {
                 right: self.initial_input_device.right_channel.clone(),
             })?;
 
+        self.output_device_sender.send(EventType::ToneDeviceUpdate {
+            name: self.initial_output_device.name.clone(),
+            left: self.initial_output_device.left_channel.clone(),
+            right: self.initial_output_device.right_channel.clone(),
+        })?;
+
         loop {
             let input_devices = get_input_device_list_from_host()?;
             let output_devices = get_output_device_list_from_host()?;
@@ -70,17 +76,11 @@ impl DeviceManager {
                 self.input_devices = input_devices;
                 self.user_interface_sender
                     .send(EventType::InputDeviceListUpdate(self.input_devices.clone()))?;
-                self.input_device_sender
-                    .send(EventType::InputDeviceListUpdate(self.input_devices.clone()))?;
             }
 
             if output_devices != self.output_devices {
                 self.output_devices = output_devices;
                 self.user_interface_sender
-                    .send(EventType::OutputDeviceListUpdate(
-                        self.output_devices.clone(),
-                    ))?;
-                self.output_device_sender
                     .send(EventType::OutputDeviceListUpdate(
                         self.output_devices.clone(),
                     ))?;
@@ -99,12 +99,12 @@ impl DeviceManager {
         self.output_devices.clone()
     }
 
-    pub fn get_current_input_device(&self) -> CurrentDevice {
+    pub fn get_initial_input_device(&self) -> CurrentDevice {
         self.initial_input_device.clone()
     }
 
-    pub fn get_current_output_device(&self) -> CurrentDevice {
-        self.current_output_device.clone()
+    pub fn get_initial_output_device(&self) -> CurrentDevice {
+        self.initial_output_device.clone()
     }
 }
 

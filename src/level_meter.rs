@@ -1,7 +1,7 @@
 use crate::device_manager::get_channel_indexes_from_channel_names;
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::events::EventType;
-use cpal::traits::*;
+use cpal::traits::{StreamTrait, DeviceTrait, HostTrait};
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -50,11 +50,11 @@ impl LevelMeter {
                     EventType::Start => self.start()?,
                     EventType::Stop => self.stop()?,
                     EventType::MeterDeviceUpdate { name, left, right } => {
-                        self.update_input_stream_on_new_device(name, left, right)?
+                        self.update_input_stream_on_new_device(&name, &left, right.as_ref())?;
                     }
                     _ => (),
                 }
-            };
+            }
         }
     }
 
@@ -78,16 +78,16 @@ impl LevelMeter {
 
     fn update_input_stream_on_new_device(
         &mut self,
-        device_name: String,
-        left_channel: String,
-        right_channel: Option<String>,
+        device_name: &str,
+        left_channel: &str,
+        right_channel: Option<&String>,
     ) -> Result<(), LocalError> {
         self.stop()?;
 
-        let input_device = get_input_device_from_device_name(&device_name)?;
+        let input_device = get_input_device_from_device_name(device_name)?;
 
         let (left_input_channel_index, right_input_channel_index) =
-            get_channel_indexes_from_channel_names(&left_channel, &right_channel)?;
+            get_channel_indexes_from_channel_names(left_channel, right_channel)?;
 
         let input_stream = create_input_stream(
             &input_device,
@@ -120,7 +120,9 @@ impl LevelMeter {
         thread::spawn(move || {
             let mut sample_receiver = sample_receiver_arc
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
 
             loop {
                 if let Ok(sample_buffers) = sample_receiver.pop() {
@@ -172,13 +174,14 @@ fn check_and_exit_if_sample_ring_buffer_is_not_alive(
     user_interface_sender: &Sender<EventType>,
     sample_buffers: &SampleFrameBuffer,
 ) {
-    if !sample_buffers.is_alive {
-        if let Err(err) = user_interface_sender.send(EventType::FatalError(
-            LocalError::LevelMeterReadRingBuffer(sample_buffers.error_message.clone()).to_string(),
-        )) {
-            handle_local_error(LocalError::LevelMeterInputStreamFailure, err.to_string());
-            exit(EXIT_CODE_ERROR);
-        }
+    if sample_buffers.is_alive {
+        return;
+    }
+    if let Err(err) = user_interface_sender.send(EventType::FatalError(
+        LocalError::LevelMeterReadRingBuffer(sample_buffers.error_message.clone()).to_string(),
+    )) {
+        handle_local_error(&LocalError::LevelMeterInputStreamFailure, &err.to_string());
+        exit(EXIT_CODE_ERROR);
     }
 }
 
@@ -188,9 +191,9 @@ fn send_updated_meter_values_to_the_ui(
     right: f32,
 ) {
     if let Err(error) = user_interface_sender.send(EventType::MeterLevelUpdate { left, right }) {
-        handle_local_error(LocalError::LevelMeterUISender, error.to_string());
+        handle_local_error(&LocalError::LevelMeterUISender, &error.to_string());
         exit(1);
-    };
+    }
 }
 
 fn consolidate_sample_buffer_collector_to_sample_buffer(
@@ -231,7 +234,9 @@ fn create_input_stream(
 
                 let mut sample_producer = sample_producer_arc
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    .unwrap_or_else(|poisoned| {
+                        poisoned.into_inner()
+                    });
 
                 if let Err(err) = sample_producer.push(SampleFrameBuffer {
                     is_alive: true,
@@ -239,7 +244,7 @@ fn create_input_stream(
                     left: left_channel_samples.clone(),
                     right: right_channel_samples.clone(),
                 }) {
-                    eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
+                    eprintln!("{ERROR_MESSAGE_INPUT_STREAM_ERROR}: {err}");
                 }
 
                 left_channel_samples.clear();
@@ -248,7 +253,9 @@ fn create_input_stream(
             move |error| {
                 let mut error_producer = error_producer_arc
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    .unwrap_or_else(|poisoned| {
+                        poisoned.into_inner()
+                    });
 
                 if let Err(err) = error_producer.push(SampleFrameBuffer {
                     is_alive: false,
@@ -256,7 +263,7 @@ fn create_input_stream(
                     left: Vec::new(),
                     right: Vec::new(),
                 }) {
-                    eprintln!("{}: {}", ERROR_MESSAGE_INPUT_STREAM_ERROR, err);
+                    eprintln!("{ERROR_MESSAGE_INPUT_STREAM_ERROR}: {err}");
                     exit(EXIT_CODE_ERROR);
                 }
             },
@@ -272,9 +279,11 @@ fn get_input_device_from_device_name(device_name: &str) -> Result<Device, LocalE
         .input_devices()
         .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
 
-    match input_devices
-        .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
-    {
+    match input_devices.find(|device| {
+        device
+            .description()
+            .is_ok_and(|device| device.name() == device_name)
+    }) {
         Some(device) => Ok(device),
         None => Err(LocalError::DeviceNotFound(device_name.to_string())),
     }
@@ -312,7 +321,7 @@ mod tests {
     #[test]
     fn return_correct_dbfs_from_valid_sample() {
         let dbfs = get_dbfs_from_sample_value(-0.5);
-        let expected_result = -6.0206003;
+        let expected_result = -6.020_600_3;
         assert_eq!(dbfs, expected_result);
     }
 

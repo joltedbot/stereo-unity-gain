@@ -86,6 +86,6 @@ pub enum LocalError {
     FatalError,
 }
 
-pub fn handle_local_error(local_error: LocalError, specific_error: String) {
-    eprintln!("\n{}: {}", local_error, specific_error);
+pub fn handle_local_error(local_error: &LocalError, specific_error: &str) {
+    eprintln!("\n{local_error}: {specific_error}");
 }

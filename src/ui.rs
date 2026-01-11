@@ -34,16 +34,18 @@ pub struct UI {
 
 impl UI {
     pub fn new(
-        ui_mutex: Arc<Mutex<Weak<AppWindow>>>,
+        ui_mutex: &Arc<Mutex<Weak<AppWindow>>>,
         tone_generator_sender: Sender<EventType>,
         level_meter_sender: Sender<EventType>,
         user_interface_sender: Sender<EventType>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Self {
         let ui_weak_mutex = ui_mutex
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(|poisoned| {
+                poisoned.into_inner()
+            });
 
-        let ui = Self {
+        Self {
             ui: ui_weak_mutex.clone(),
             tone_generator_sender,
             level_meter_sender,
@@ -53,14 +55,12 @@ impl UI {
             current_input_device: CurrentDevice::default(),
             current_output_device: CurrentDevice::default(),
             state: Arc::new(Mutex::new(State::default())),
-        };
-
-        Ok(ui)
+        }
     }
 
     pub fn run(
         &mut self,
-        level_meter_display_receiver: Receiver<EventType>,
+        level_meter_display_receiver: &Receiver<EventType>,
     ) -> Result<(), Box<dyn Error>> {
         let ui_weak = self.ui.clone();
 
@@ -75,7 +75,7 @@ impl UI {
                     } => {
                         let state = state_arc
                             .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
                         if state.meter_delta_mode_active {
                             left -= state.reference_level as f32;
@@ -106,7 +106,7 @@ impl UI {
                             right: self.current_input_device.right_channel.clone(),
                         }) {
                             handle_error_in_ui(&ui_weak, &error.to_string());
-                        };
+                        }
                     }
                     EventType::OutputDeviceUpdate(device_name) => {
                         self.update_current_output_device(device_name.clone())?;
@@ -120,7 +120,7 @@ impl UI {
                             })
                         {
                             handle_error_in_ui(&ui_weak, &error.to_string());
-                        };
+                        }
                     }
                     EventType::InputChannelUpdate { left, right } => {
                         self.current_input_device.left_channel = left.clone();
@@ -134,7 +134,7 @@ impl UI {
                             })
                         {
                             handle_error_in_ui(&ui_weak, &error.to_string());
-                        };
+                        }
                     }
                     EventType::OutputChannelUpdate { left, right } => {
                         self.current_output_device.left_channel = left.clone();
@@ -149,7 +149,7 @@ impl UI {
                                 })
                         {
                             handle_error_in_ui(&ui_weak, &error.to_string());
-                        };
+                        }
                     }
                     EventType::InputDeviceListUpdate(input_device_list) => {
                         self.input_device_list = input_device_list.clone();
@@ -174,7 +174,7 @@ impl UI {
                                 })
                             {
                                 handle_error_in_ui(&ui_weak, &error.to_string());
-                            };
+                            }
                         }
 
                         self.initialize_displayed_input_device_data()?;
@@ -201,7 +201,7 @@ impl UI {
                                 })
                             {
                                 handle_error_in_ui(&ui_weak, &error.to_string());
-                            };
+                            }
                         }
 
                         self.initialize_displayed_output_device_data()?;
@@ -224,7 +224,7 @@ impl UI {
         reference_frequency: f32,
         reference_level: i32,
         delta_mode_active: bool,
-    ) -> Result<(), Box<dyn Error>> {
+    ){
         self.current_input_device = current_input_device;
         self.current_output_device = current_output_device;
 
@@ -232,7 +232,9 @@ impl UI {
             let mut state = self
                 .state
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
             state.reference_level = reference_level;
             state.meter_delta_mode_active = delta_mode_active;
         }
@@ -246,8 +248,7 @@ impl UI {
             ui.set_reference_frequency(reference_frequency);
             ui.set_reference_level(reference_level);
         });
-
-        Ok(())
+        
     }
 
     fn initialize_displayed_input_device_data(&mut self) -> Result<(), Box<dyn Error>> {
@@ -257,11 +258,11 @@ impl UI {
         let ui_weak = self.ui.clone();
 
         ui_weak.upgrade_in_event_loop(move |ui| {
-            ui.set_input_device_list(get_model_from_string_slice(input_device_list.devices));
+            ui.set_input_device_list(get_model_from_string_slice(&input_device_list.devices));
             ui.set_current_input_device(SharedString::from(current_input_device.name.clone()));
         })?;
 
-        self.update_input_device_display_data(self.current_input_device.name.clone())?;
+        self.update_input_device_display_data(&self.current_input_device.name.clone())?;
 
         Ok(())
     }
@@ -279,10 +280,10 @@ impl UI {
         )?;
 
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-            ui.set_output_device_list(get_model_from_string_slice(output_device_list.devices));
+            ui.set_output_device_list(get_model_from_string_slice(&output_device_list.devices));
 
             ui.set_output_channel_list(get_model_from_string_slice(
-                output_device_list.channels[output_device_index as usize].clone(),
+                &output_device_list.channels[output_device_index as usize].clone(),
             ));
 
             ui.set_current_output_device(SharedString::from(current_output_device.name.clone()));
@@ -321,7 +322,7 @@ impl UI {
             None
         };
 
-        self.update_input_device_display_data(device_name)?;
+        self.update_input_device_display_data(&device_name)?;
 
         Ok(())
     }
@@ -345,14 +346,14 @@ impl UI {
             None
         };
 
-        self.update_output_device_display_data(device_name)?;
+        self.update_output_device_display_data(&device_name)?;
 
         Ok(())
     }
 
     fn update_input_device_display_data(
         &mut self,
-        device_name: String,
+        device_name: &str,
     ) -> Result<(), Box<dyn Error>> {
         let left_input_channel = self.current_input_device.left_channel.clone();
         let right_input_channel = self.current_input_device.right_channel.clone();
@@ -360,11 +361,11 @@ impl UI {
         let ui_weak = self.ui.clone();
 
         let input_device_index =
-            get_current_device_index_from_device_list(&input_device_list, &device_name)?;
+            get_current_device_index_from_device_list(&input_device_list, device_name)?;
 
         ui_weak.upgrade_in_event_loop(move |ui| {
             ui.set_input_channel_list(get_model_from_string_slice(
-                input_device_list.channels[input_device_index as usize].clone(),
+                &input_device_list.channels[input_device_index as usize].clone(),
             ));
 
             ui.set_left_current_input_channel(SharedString::from(left_input_channel));
@@ -386,19 +387,19 @@ impl UI {
     }
     fn update_output_device_display_data(
         &mut self,
-        device_name: String,
+        device_name: &str,
     ) -> Result<(), Box<dyn Error>> {
         let left_output_channel = self.current_output_device.left_channel.clone();
         let right_output_channel = self.current_output_device.right_channel.clone();
         let output_device_list = self.output_device_list.clone();
         let output_device_index =
-            get_current_device_index_from_device_list(&output_device_list, &device_name)?;
+            get_current_device_index_from_device_list(&output_device_list, device_name)?;
 
         let ui_weak = self.ui.clone();
 
         ui_weak.upgrade_in_event_loop(move |ui| {
             ui.set_output_channel_list(get_model_from_string_slice(
-                output_device_list.channels[output_device_index as usize].clone(),
+                &output_device_list.channels[output_device_index as usize].clone(),
             ));
 
             ui.set_left_current_output_channel(SharedString::from(left_output_channel));
@@ -441,46 +442,45 @@ impl UI {
 
     fn on_start_button_pressed_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!("Start Button Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!("Start Button Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
+            exit(1);
         };
 
         let level_meter_sender = self.level_meter_sender.clone();
         let tone_generator_sender = self.tone_generator_sender.clone();
 
         ui.on_start_button_pressed(move |is_active| {
-            let event_type = match is_active {
-                true => EventType::Start,
-                false => EventType::Stop,
+            let event_type = if is_active {
+                EventType::Start
+            } else {
+                EventType::Stop
             };
 
             if let Err(error) = level_meter_sender.send(event_type.clone()) {
-                eprintln!("Error sending event: {}", error);
+                eprintln!("Error sending event: {error}");
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
 
             if let Err(error) = tone_generator_sender.send(event_type.clone()) {
-                eprintln!("Error sending event: {}", error);
+                eprintln!("Error sending event: {error}");
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
         });
     }
 
     fn on_select_new_input_device_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "New Input Device Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "New Input Device Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let user_interface_sender = self.user_interface_sender.clone();
@@ -492,18 +492,17 @@ impl UI {
                 user_interface_sender.send(EventType::InputDeviceUpdate(device_name.clone()))
             {
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
         });
     }
 
     fn on_select_new_output_device_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!("New Output Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!("New Output Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
+            exit(1);
         };
 
         let user_interface_sender = self.user_interface_sender.clone();
@@ -513,21 +512,20 @@ impl UI {
                 user_interface_sender.send(EventType::OutputDeviceUpdate(device.to_string()))
             {
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
         });
     }
 
     fn on_select_new_input_channel_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "New Input Channel Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "New Input Channel Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let user_interface_sender = self.user_interface_sender.clone();
@@ -545,21 +543,20 @@ impl UI {
                 right: right_input_channel,
             }) {
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
         });
     }
 
     fn on_select_new_output_channel_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "New Output Channel Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "New Output Channel Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let user_interface_sender = self.user_interface_sender.clone();
@@ -577,21 +574,20 @@ impl UI {
                 right: right_output_channel,
             }) {
                 handle_error_in_ui(&ui_weak, &error.to_string());
-            };
+            }
         });
     }
 
     fn on_reference_tone_frequency_changed_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "Tone Frequency Change Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "Tone Frequency Change Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let reference_tone_sender = self.tone_generator_sender.clone();
@@ -607,15 +603,15 @@ impl UI {
 
     fn on_tone_mode_updated_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "Tone Mode Updated Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "Tone Mode Updated Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let tone_generator_sender = self.tone_generator_sender.clone();
@@ -631,15 +627,14 @@ impl UI {
 
     fn on_reference_tone_level_changed_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "Tone Level Change Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "Tone Level Change Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let level_meter_sender = self.level_meter_sender.clone();
@@ -649,7 +644,9 @@ impl UI {
         ui.on_tone_level_changed(move |level| {
             let mut state = state_arc
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
 
             state.reference_level = level;
 
@@ -665,15 +662,14 @@ impl UI {
 
     pub fn on_delta_mode_switch_toggled_callback(&self) {
         let ui_weak = self.ui.clone();
-        let ui = match ui_weak.upgrade() {
-            Some(ui) => ui,
-            None => {
-                eprintln!(
-                    "Delta Mode Toggled Callback: {}",
-                    FATAL_ERROR_MESSAGE_UI_ERROR
-                );
-                exit(1);
-            }
+        let ui = if let Some(ui) = ui_weak.upgrade() {
+            ui
+        } else {
+            eprintln!(
+                "Delta Mode Toggled Callback: {}",
+                FATAL_ERROR_MESSAGE_UI_ERROR
+            );
+            exit(1);
         };
 
         let state_arc = self.state.clone();
@@ -681,7 +677,9 @@ impl UI {
         ui.on_delta_mode_checked(move |delta_mode_active| {
             let mut state = state_arc
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
             state.meter_delta_mode_active = delta_mode_active;
         });
     }
@@ -714,26 +712,24 @@ impl UI {
         });
 
         if let Err(error) = self.level_meter_sender.send(EventType::Stop) {
-            eprintln!("Error sending event: {}", error);
+            eprintln!("Error sending event: {error}");
             handle_error_in_ui(&ui_weak, &error.to_string());
-        };
+        }
 
         if let Err(error) = self.tone_generator_sender.send(EventType::Stop) {
-            eprintln!("Error sending event: {}", error);
+            eprintln!("Error sending event: {error}");
             handle_error_in_ui(&ui_weak, &error.to_string());
-        };
+        }
     }
 }
 
 fn get_ui_from_ui_weak_reference(ui_weak: &Weak<AppWindow>) -> AppWindow {
-    let ui = match ui_weak.upgrade() {
-        Some(ui) => ui,
-        None => {
-            eprintln!("Close Dialog Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
-            exit(1);
-        }
-    };
-    ui
+    if let Some(ui) = ui_weak.upgrade() {
+        ui
+    } else {
+        eprintln!("Close Dialog Callback: {}", FATAL_ERROR_MESSAGE_UI_ERROR);
+        exit(1);
+    }
 }
 
 fn get_current_device_index_from_device_list(
@@ -751,7 +747,7 @@ fn get_current_device_index_from_device_list(
     Ok(index)
 }
 
-fn get_model_from_string_slice(devices: Vec<String>) -> ModelRc<SharedString> {
+fn get_model_from_string_slice(devices: &[String]) -> ModelRc<SharedString> {
     let name_list: Vec<SharedString> = devices.iter().map(SharedString::from).collect();
     ModelRc::new(VecModel::from_slice(name_list.as_slice()))
 }

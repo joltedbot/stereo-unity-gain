@@ -45,7 +45,7 @@ mod tests {
             sine.generate_tone_sample(440.0, 1.0),
             sine.generate_tone_sample(440.0, 1.0),
         ];
-        let expected_samples = [0.0645879, 0.12896161, 0.19290763];
+        let expected_samples = [0.064_587_9, 0.128_961_61, 0.192_907_63];
 
         assert_eq!(samples, expected_samples);
     }
@@ -77,7 +77,7 @@ mod tests {
     fn return_valid_sample_value_from_negative_frequency() {
         let mut sine = Sine::new(48000.0);
         let sample = sine.generate_tone_sample(-440.0, 1.0);
-        let expected_negagtive_value = -0.0645879;
+        let expected_negagtive_value = -0.064_587_9;
         assert_eq!(sample, expected_negagtive_value);
     }
 }

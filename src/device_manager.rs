@@ -119,7 +119,12 @@ fn get_default_input_device_data(
 
     let device = host
         .input_devices()?
-        .find(|device| device.name().iter().any(|device_name| device_name == &name))
+        .find(|device| {
+            device
+                .description()
+                .iter()
+                .any(|device_description| device_description.name() == name)
+        })
         .ok_or(LocalError::NoDefaultInputDevice)?;
 
     let default_input_channels = get_channel_list_from_input_device(&device);
@@ -148,7 +153,12 @@ fn get_default_output_device_data(
 
     let device = host
         .output_devices()?
-        .find(|device| device.name().iter().any(|device_name| device_name == &name))
+        .find(|device| {
+            device
+                .description()
+                .iter()
+                .any(|device_description| device_description.name() == name)
+        })
         .ok_or(LocalError::NoDefaultOutputDevice)?;
 
     let default_output_channels = get_channel_list_from_output_device(&device);
@@ -175,8 +185,8 @@ fn get_input_device_list_from_host() -> Result<DeviceList, Box<dyn Error>> {
     let host = default_host();
 
     host.input_devices()?.for_each(|device| {
-        if let Ok(name) = device.name() {
-            input_devices.push(name);
+        if let Ok(description) = device.description() {
+            input_devices.push(description.name().to_string());
             let input_channel = get_channel_list_from_input_device(&device);
             input_channels.push(input_channel);
         }
@@ -195,8 +205,8 @@ fn get_output_device_list_from_host() -> Result<DeviceList, Box<dyn Error>> {
     let host = default_host();
 
     host.output_devices()?.for_each(|device| {
-        if let Ok(name) = device.name() {
-            output_devices.push(name);
+        if let Ok(description) = device.description() {
+            output_devices.push(description.name().to_string());
             output_channels.push(get_channel_list_from_output_device(&device));
         }
     });
@@ -215,7 +225,7 @@ fn get_channel_list_from_input_device(input_device: &Device) -> Vec<String> {
             .collect();
 
         return channels;
-    };
+    }
 
     Vec::new()
 }
@@ -228,21 +238,21 @@ fn get_channel_list_from_output_device(output_device: &Device) -> Vec<String> {
             .collect();
 
         return channels;
-    };
+    }
 
     Vec::new()
 }
 
 pub fn get_channel_indexes_from_channel_names(
     left_channel: &str,
-    right_channel: &Option<String>,
+    right_channel: Option<&String>,
 ) -> Result<(usize, Option<usize>), LocalError> {
     let left_index = get_channel_index_from_name(left_channel)?;
     let mut right_index: Option<usize> = None;
 
-    if right_channel.is_some() {
+    if let Some(channel) = right_channel {
         right_index = Some(get_channel_index_from_name(
-            right_channel.as_ref().unwrap(),
+            channel,
         )?);
     }
 
@@ -289,7 +299,7 @@ mod tests {
     fn return_correct_channel_indexes_from_valid_channel_names() {
         let test_left = "2";
         let test_right = Some(3.to_string());
-        let (left, right) = get_channel_indexes_from_channel_names(test_left, &test_right).unwrap();
+        let (left, right) = get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
         assert_eq!(left, 1);
         assert_eq!(right, Some(2));
     }
@@ -298,7 +308,7 @@ mod tests {
     fn return_correct_channel_indexes_from_only_left_channel_name() {
         let test_left = "2";
         let test_right = None;
-        let (left, right) = get_channel_indexes_from_channel_names(test_left, &test_right).unwrap();
+        let (left, right) = get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
         assert_eq!(left, 1);
         assert_eq!(right, None);
     }

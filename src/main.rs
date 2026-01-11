@@ -36,18 +36,12 @@ fn main() -> Result<(), slint::PlatformError> {
     let level_meter_sender = events.get_level_meter_sender();
     let user_interface_sender = events.get_user_interface_sender();
 
-    let mut ui = match UI::new(
-        Arc::new(Mutex::new(application.as_weak())),
+    let mut ui =UI::new(
+        &Arc::new(Mutex::new(application.as_weak())),
         tone_generator_sender,
         level_meter_sender,
         user_interface_sender,
-    ) {
-        Ok(ui) => ui,
-        Err(error) => {
-            handle_local_error(LocalError::UIInitialization, error.to_string());
-            exit(EXIT_CODE_ERROR);
-        }
-    };
+    );
 
     ui.create_ui_callbacks();
 
@@ -63,21 +57,18 @@ fn main() -> Result<(), slint::PlatformError> {
     ) {
         Ok(device_manager) => device_manager,
         Err(error) => {
-            handle_local_error(LocalError::DeviceManagerInitialization, error.to_string());
+            handle_local_error(&LocalError::DeviceManagerInitialization, &error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     };
 
-    if let Err(err) = ui.initialize_ui_with_device_data(
+    ui.initialize_ui_with_device_data(
         device_manager.get_initial_input_device(),
         device_manager.get_initial_output_device(),
         DEFAULT_REFERENCE_FREQUENCY,
         DEFAULT_REFERENCE_LEVEL,
         DEFAULT_DELTA_MODE,
-    ) {
-        handle_local_error(LocalError::UIInitialization, err.to_string());
-        exit(EXIT_CODE_ERROR);
-    }
+    );
 
     // Initialize Tone Generator Module
     let tone_generator_receiver = events.get_tone_generator_receiver();
@@ -92,13 +83,13 @@ fn main() -> Result<(), slint::PlatformError> {
         ) {
             Ok(tone_generator) => tone_generator,
             Err(error) => {
-                handle_local_error(LocalError::ToneGeneratorInitialization, error.to_string());
+                handle_local_error(&LocalError::ToneGeneratorInitialization, &error.to_string());
                 exit(EXIT_CODE_ERROR);
             }
         };
 
         if let Err(error) = tone_generator.run() {
-            handle_local_error(LocalError::ToneGeneratorInitialization, error.to_string());
+            handle_local_error(&LocalError::ToneGeneratorInitialization, &error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     });
@@ -112,8 +103,8 @@ fn main() -> Result<(), slint::PlatformError> {
             Ok(level_meter) => level_meter,
             Err(error) => {
                 handle_local_error(
-                    LocalError::LevelMeterInitialization(error.to_string()),
-                    String::new(),
+                    &LocalError::LevelMeterInitialization(error.to_string()),
+                    "",
                 );
                 exit(EXIT_CODE_ERROR);
             }
@@ -121,16 +112,16 @@ fn main() -> Result<(), slint::PlatformError> {
 
         if let Err(error) = level_meter.run_input_sample_processor(level_meter_ui_sender) {
             handle_local_error(
-                LocalError::LevelMeterInitialization(error.to_string()),
-                String::new(),
+                &LocalError::LevelMeterInitialization(error.to_string()),
+                "",
             );
             exit(EXIT_CODE_ERROR);
         }
 
         if let Err(error) = level_meter.run() {
             handle_local_error(
-                LocalError::LevelMeterInitialization(error.to_string()),
-                String::new(),
+                &LocalError::LevelMeterInitialization(error.to_string()),
+                "",
             );
             exit(EXIT_CODE_ERROR);
         }
@@ -139,7 +130,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Spawn the run loop for the Devices Manager module consuming the initialized object
     thread::spawn(move || {
         if let Err(error) = device_manager.run() {
-            handle_local_error(LocalError::DeviceManagerInitialization, error.to_string());
+            handle_local_error(&LocalError::DeviceManagerInitialization, &error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     });
@@ -147,8 +138,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // Spawn the run loop for the UI module consuming the initialized object
     let user_interface_receiver: Receiver<EventType> = events.get_user_interface_receiver();
     thread::spawn(move || {
-        if let Err(error) = ui.run(user_interface_receiver) {
-            handle_local_error(LocalError::UIInitialization, error.to_string());
+        if let Err(error) = ui.run(&user_interface_receiver) {
+            handle_local_error(&LocalError::UIInitialization, &error.to_string());
             exit(EXIT_CODE_ERROR);
         }
     });

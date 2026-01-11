@@ -1,7 +1,7 @@
 use crate::device_manager::{CurrentDevice, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::events::EventType;
-use cpal::traits::*;
+use cpal::traits::{StreamTrait, DeviceTrait, HostTrait};
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
 use sine::Sine;
@@ -74,11 +74,11 @@ impl ToneGenerator {
                         }
                     }
                     EventType::ToneDeviceUpdate { name, left, right } => {
-                        self.update_output_stream_on_new_device(name, left, right)?;
+                        self.update_output_stream_on_new_device(&name, &left, right.as_ref())?;
                     }
                     _ => (),
                 }
-            };
+            }
         }
     }
 
@@ -101,17 +101,13 @@ impl ToneGenerator {
     }
 
     pub fn update_output_stream_on_new_device(
-        &mut self,
-        name: String,
-        left_channel: String,
-        right_channel: Option<String>,
-    ) -> Result<(), LocalError> {
+        &mut self,name: &str, left_channel: &str, right_channel: Option<&String>,) -> Result<(), LocalError> {
         self.stop()?;
 
-        let output_device = get_output_device_from_device_name(&name)?;
+        let output_device = get_output_device_from_device_name(name)?;
 
         let (left_output_channel_index, right_output_channel_index) =
-            get_channel_indexes_from_channel_names(&left_channel, &right_channel)?;
+            get_channel_indexes_from_channel_names(left_channel, right_channel)?;
 
         let user_interface_sender = self.user_interface_sender.clone();
 
@@ -151,7 +147,7 @@ fn create_output_steam(
 
     let stream_config = config_result.config();
     let number_of_channels = stream_config.channels;
-    let sample_rate = stream_config.sample_rate.0 as f32;
+    let sample_rate = stream_config.sample_rate as f32;
     let mut sine_wave = Sine::new(sample_rate);
     let mut square_wave = Square::new(sample_rate);
 
@@ -218,7 +214,7 @@ fn create_output_steam(
                 if let Err(err) =
                     user_interface_sender.send(EventType::FatalError(error.to_string()))
                 {
-                    eprintln!("{}: {}", ERROR_MESSAGE_OUTPUT_STREAM_ERROR, err);
+                    eprintln!("{ERROR_MESSAGE_OUTPUT_STREAM_ERROR}: {err}");
                     exit(EXIT_CODE_ERROR);
                 }
             },
@@ -234,9 +230,11 @@ fn get_output_device_from_device_name(device_name: &str) -> Result<Device, Local
         .output_devices()
         .map_err(|err| LocalError::DeviceConfiguration(err.to_string()))?;
 
-    match output_devices
-        .find(|device| device.name().is_ok() && device.name().unwrap() == device_name)
-    {
+    match output_devices.find(|device| {
+        device
+            .description()
+            .is_ok_and(|device| device.name() == device_name)
+    }) {
         Some(device) => Ok(device),
         None => Err(LocalError::DeviceNotFound(device_name.to_string())),
     }
@@ -245,7 +243,7 @@ fn get_output_device_from_device_name(device_name: &str) -> Result<Device, Local
 pub fn get_default_device_data_from_output_device(
     device: &Device,
 ) -> Result<CurrentDevice, Box<dyn Error>> {
-    let name = device.name()?;
+    let name = device.description()?.name().to_string();
 
     let default_output_channels = get_channel_list_from_output_device(device);
 

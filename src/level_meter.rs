@@ -1,7 +1,7 @@
 use crate::device_manager::get_channel_indexes_from_channel_names;
 use crate::errors::{EXIT_CODE_ERROR, LocalError, handle_local_error};
 use crate::events::EventType;
-use cpal::traits::{StreamTrait, DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
 use rtrb::{Consumer, Producer, RingBuffer};
@@ -120,9 +120,7 @@ impl LevelMeter {
         thread::spawn(move || {
             let mut sample_receiver = sample_receiver_arc
                 .lock()
-                .unwrap_or_else(|poisoned| {
-                    poisoned.into_inner()
-                });
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
 
             loop {
                 if let Ok(sample_buffers) = sample_receiver.pop() {
@@ -234,9 +232,7 @@ fn create_input_stream(
 
                 let mut sample_producer = sample_producer_arc
                     .lock()
-                    .unwrap_or_else(|poisoned| {
-                        poisoned.into_inner()
-                    });
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
 
                 if let Err(err) = sample_producer.push(SampleFrameBuffer {
                     is_alive: true,
@@ -253,9 +249,7 @@ fn create_input_stream(
             move |error| {
                 let mut error_producer = error_producer_arc
                     .lock()
-                    .unwrap_or_else(|poisoned| {
-                        poisoned.into_inner()
-                    });
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
 
                 if let Err(err) = error_producer.push(SampleFrameBuffer {
                     is_alive: false,

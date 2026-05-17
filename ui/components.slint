@@ -1,4 +1,12 @@
-import { ComboBox, Button, GridBox, Switch, StandardButton, Slider, SpinBox} from "std-widgets.slint";
+import {
+    ComboBox,
+    Button,
+    GridBox,
+    Switch,
+    StandardButton,
+    Slider,
+    SpinBox,
+} from "std-widgets.slint";
 import { Theme } from "../ui/theme.slint";
 
 
@@ -42,7 +50,7 @@ export component LevelBox inherits Rectangle {
             } else if (self.text.to-float() > 0.1) {
                 box-background.background = Theme.level-box-background-high;
             } else if (!enabled) {
-               box-background.background = Theme.level-box-background-start;
+                box-background.background = Theme.level-box-background-start;
             } else {
                 box-background.background = Theme.level-box-background-correct;
             }

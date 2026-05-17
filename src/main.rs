@@ -36,7 +36,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let level_meter_sender = events.get_level_meter_sender();
     let user_interface_sender = events.get_user_interface_sender();
 
-    let mut ui =UI::new(
+    let mut ui = UI::new(
         &Arc::new(Mutex::new(application.as_weak())),
         tone_generator_sender,
         level_meter_sender,
@@ -102,27 +102,18 @@ fn main() -> Result<(), slint::PlatformError> {
         let mut level_meter = match LevelMeter::new(level_meter_receiver) {
             Ok(level_meter) => level_meter,
             Err(error) => {
-                handle_local_error(
-                    &LocalError::LevelMeterInitialization(error.to_string()),
-                    "",
-                );
+                handle_local_error(&LocalError::LevelMeterInitialization(error.to_string()), "");
                 exit(EXIT_CODE_ERROR);
             }
         };
 
         if let Err(error) = level_meter.run_input_sample_processor(level_meter_ui_sender) {
-            handle_local_error(
-                &LocalError::LevelMeterInitialization(error.to_string()),
-                "",
-            );
+            handle_local_error(&LocalError::LevelMeterInitialization(error.to_string()), "");
             exit(EXIT_CODE_ERROR);
         }
 
         if let Err(error) = level_meter.run() {
-            handle_local_error(
-                &LocalError::LevelMeterInitialization(error.to_string()),
-                "",
-            );
+            handle_local_error(&LocalError::LevelMeterInitialization(error.to_string()), "");
             exit(EXIT_CODE_ERROR);
         }
     });

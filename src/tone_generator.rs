@@ -1,7 +1,7 @@
 use crate::device_manager::{CurrentDevice, get_channel_indexes_from_channel_names};
 use crate::errors::{EXIT_CODE_ERROR, LocalError};
 use crate::events::EventType;
-use cpal::traits::{StreamTrait, DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Stream, default_host};
 use crossbeam_channel::{Receiver, Sender};
 use sine::Sine;
@@ -101,7 +101,11 @@ impl ToneGenerator {
     }
 
     pub fn update_output_stream_on_new_device(
-        &mut self,name: &str, left_channel: &str, right_channel: Option<&String>,) -> Result<(), LocalError> {
+        &mut self,
+        name: &str,
+        left_channel: &str,
+        right_channel: Option<&String>,
+    ) -> Result<(), LocalError> {
         self.stop()?;
 
         let output_device = get_output_device_from_device_name(name)?;

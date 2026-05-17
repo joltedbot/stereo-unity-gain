@@ -251,9 +251,7 @@ pub fn get_channel_indexes_from_channel_names(
     let mut right_index: Option<usize> = None;
 
     if let Some(channel) = right_channel {
-        right_index = Some(get_channel_index_from_name(
-            channel,
-        )?);
+        right_index = Some(get_channel_index_from_name(channel)?);
     }
 
     Ok((left_index, right_index))
@@ -299,7 +297,8 @@ mod tests {
     fn return_correct_channel_indexes_from_valid_channel_names() {
         let test_left = "2";
         let test_right = Some(3.to_string());
-        let (left, right) = get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
+        let (left, right) =
+            get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
         assert_eq!(left, 1);
         assert_eq!(right, Some(2));
     }
@@ -308,7 +307,8 @@ mod tests {
     fn return_correct_channel_indexes_from_only_left_channel_name() {
         let test_left = "2";
         let test_right = None;
-        let (left, right) = get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
+        let (left, right) =
+            get_channel_indexes_from_channel_names(test_left, test_right.as_ref()).unwrap();
         assert_eq!(left, 1);
         assert_eq!(right, None);
     }

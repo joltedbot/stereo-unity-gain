@@ -41,9 +41,7 @@ impl UI {
     ) -> Self {
         let ui_weak_mutex = ui_mutex
             .lock()
-            .unwrap_or_else(|poisoned| {
-                poisoned.into_inner()
-            });
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         Self {
             ui: ui_weak_mutex.clone(),
@@ -224,7 +222,7 @@ impl UI {
         reference_frequency: f32,
         reference_level: i32,
         delta_mode_active: bool,
-    ){
+    ) {
         self.current_input_device = current_input_device;
         self.current_output_device = current_output_device;
 
@@ -232,9 +230,7 @@ impl UI {
             let mut state = self
                 .state
                 .lock()
-                .unwrap_or_else(|poisoned| {
-                    poisoned.into_inner()
-                });
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.reference_level = reference_level;
             state.meter_delta_mode_active = delta_mode_active;
         }
@@ -248,7 +244,6 @@ impl UI {
             ui.set_reference_frequency(reference_frequency);
             ui.set_reference_level(reference_level);
         });
-        
     }
 
     fn initialize_displayed_input_device_data(&mut self) -> Result<(), Box<dyn Error>> {
@@ -644,9 +639,7 @@ impl UI {
         ui.on_tone_level_changed(move |level| {
             let mut state = state_arc
                 .lock()
-                .unwrap_or_else(|poisoned| {
-                    poisoned.into_inner()
-                });
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
 
             state.reference_level = level;
 
@@ -677,9 +670,7 @@ impl UI {
         ui.on_delta_mode_checked(move |delta_mode_active| {
             let mut state = state_arc
                 .lock()
-                .unwrap_or_else(|poisoned| {
-                    poisoned.into_inner()
-                });
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             state.meter_delta_mode_active = delta_mode_active;
         });
     }

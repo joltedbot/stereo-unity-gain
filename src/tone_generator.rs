@@ -212,7 +212,7 @@ fn create_output_steam(
 
     device
         .build_output_stream(
-            &stream_config,
+            stream_config,
             callback,
             move |error| {
                 if let Err(err) =

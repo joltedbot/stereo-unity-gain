@@ -220,7 +220,7 @@ fn create_input_stream(
 
     device
         .build_input_stream(
-            &stream_config,
+            stream_config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 data.chunks_exact(number_of_channels as usize)
                     .for_each(|frame| {
